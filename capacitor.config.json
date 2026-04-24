@@ -1,0 +1,11 @@
+{
+  "appId": "com.hackerworlds.app",
+  "appName": "Hacker Worlds",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

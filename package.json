@@ -1,0 +1,20 @@
+{
+  "name": "hacker-worlds",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Educational game-hacking sim — PWA + Capacitor Android wrapper.",
+  "scripts": {
+    "serve": "http-server -p 8765 -c-1 www",
+    "cap:sync": "cap sync android",
+    "cap:open": "cap open android",
+    "android:debug": "cap sync android && cd android && ./gradlew assembleDebug",
+    "android:release": "cap sync android && cd android && ./gradlew assembleRelease"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
+  }
+}

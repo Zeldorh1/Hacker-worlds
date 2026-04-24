@@ -1,0 +1,18 @@
+node_modules/
+package-lock.json
+
+# Capacitor / Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+android/local.properties
+android/.idea/
+android/captures/
+android/app/src/main/assets/public/
+*.iml
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
