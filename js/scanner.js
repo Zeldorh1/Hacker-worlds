@@ -1,0 +1,150 @@
+// Memory Scanner UI controller — Cheat Engine clone, simplified.
+
+import { memory } from "./sim-memory.js";
+
+const MAX_RESULT_ROWS = 200;
+
+export class Scanner {
+  constructor(root) {
+    this.root = root;
+    this.lastResults = null; // null = no scan yet, [] = scanned but empty
+    this.watch = new Map();  // addr -> {value}
+
+    this.$value   = root.querySelector("#scan-value");
+    this.$first   = root.querySelector("#btn-first-scan");
+    this.$next    = root.querySelector("#btn-next-scan");
+    this.$reset   = root.querySelector("#btn-reset-scan");
+    this.$status  = root.querySelector("#scan-status");
+    this.$results = root.querySelector("#scan-results");
+    this.$watch   = root.querySelector("#watchlist");
+
+    this.$first.addEventListener("click", () => this.firstScan());
+    this.$next.addEventListener("click",  () => this.nextScan());
+    this.$reset.addEventListener("click", () => this.reset());
+
+    this.reset();
+    this._tickWatchlist();
+  }
+
+  _filterMode() {
+    const r = this.root.querySelector('input[name="filter"]:checked');
+    return r ? r.value : "exact";
+  }
+
+  reset() {
+    this.lastResults = null;
+    this.$results.innerHTML = '<li class="empty">No scan yet. Enter a value and tap "First Scan".</li>';
+    this.$status.textContent = "No scan yet.";
+    this.$next.disabled = true;
+  }
+
+  firstScan() {
+    const v = parseInt(this.$value.value, 10);
+    if (Number.isNaN(v)) { this.$status.textContent = "Enter a number."; return; }
+    this.lastResults = memory.scan(v);
+    this._renderResults();
+    this.$next.disabled = this.lastResults.length === 0;
+    this.$status.textContent = `${this.lastResults.length} match(es) for ${v}.`;
+    this._emit("scan");
+  }
+
+  nextScan() {
+    if (!this.lastResults) return;
+    const mode = this._filterMode();
+    const v = parseInt(this.$value.value, 10);
+    if (mode === "exact" && Number.isNaN(v)) { this.$status.textContent = "Enter a number."; return; }
+    this.lastResults = memory.filter(this.lastResults, mode, v);
+    this._renderResults();
+    this.$next.disabled = this.lastResults.length === 0;
+    this.$status.textContent = `${this.lastResults.length} match(es) after filter (${mode}).`;
+    this._emit("scan");
+  }
+
+  _renderResults() {
+    if (!this.lastResults || this.lastResults.length === 0) {
+      this.$results.innerHTML = '<li class="empty">No matches.</li>';
+      return;
+    }
+    const rows = this.lastResults.slice(0, MAX_RESULT_ROWS);
+    const html = rows.map(r => `
+      <li>
+        <span class="addr">${r.addr}</span>
+        <span class="val">${r.value}</span>
+        <button class="add" data-addr="${r.addr}">+ watch</button>
+      </li>
+    `).join("");
+    const tail = this.lastResults.length > MAX_RESULT_ROWS
+      ? `<li class="empty">+${this.lastResults.length - MAX_RESULT_ROWS} more (narrow further)</li>`
+      : "";
+    this.$results.innerHTML = html + tail;
+    this.$results.querySelectorAll("button.add").forEach(b => {
+      b.addEventListener("click", () => this.addToWatchlist(b.dataset.addr));
+    });
+  }
+
+  addToWatchlist(addr) {
+    if (this.watch.has(addr)) return;
+    this.watch.set(addr, { value: memory.read(addr) });
+    this._renderWatchlist();
+    this._emit("watch");
+  }
+
+  removeFromWatchlist(addr) {
+    this.watch.delete(addr);
+    memory.setFrozen(addr, false);
+    this._renderWatchlist();
+    this._emit("watch");
+  }
+
+  _renderWatchlist() {
+    if (this.watch.size === 0) {
+      this.$watch.innerHTML = '<li class="empty">Tap "+ watch" on a result to track it here.</li>';
+      return;
+    }
+    const html = [...this.watch.keys()].map(addr => {
+      const cur = memory.read(addr);
+      const frozen = memory.isFrozen(addr);
+      return `
+        <li data-addr="${addr}">
+          <span class="addr">${addr}</span>
+          <input class="value-edit" type="number" inputmode="numeric" value="${cur}" />
+          <label class="freeze"><input type="checkbox" class="freeze-cb" ${frozen ? "checked" : ""}/> freeze</label>
+          <button class="remove">x</button>
+        </li>`;
+    }).join("");
+    this.$watch.innerHTML = html;
+    this.$watch.querySelectorAll("li").forEach(li => {
+      const addr = li.dataset.addr;
+      li.querySelector(".value-edit").addEventListener("change", e => {
+        const nv = parseInt(e.target.value, 10);
+        if (Number.isNaN(nv)) return;
+        memory.write(addr, nv);
+        this._emit("write");
+      });
+      li.querySelector(".freeze-cb").addEventListener("change", e => {
+        memory.setFrozen(addr, e.target.checked);
+        this._emit("freeze");
+      });
+      li.querySelector(".remove").addEventListener("click", () => this.removeFromWatchlist(addr));
+    });
+  }
+
+  // Live-refresh the displayed values in the watchlist so frozen vs. free are
+  // visible without re-scanning.
+  _tickWatchlist() {
+    setInterval(() => {
+      for (const li of this.$watch.querySelectorAll("li[data-addr]")) {
+        const addr = li.dataset.addr;
+        const input = li.querySelector(".value-edit");
+        if (input && document.activeElement !== input) {
+          input.value = memory.read(addr);
+        }
+      }
+    }, 200);
+  }
+
+  // Light pub/sub for missions to react to scanner activity.
+  _listeners = new Set();
+  on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
+  _emit(kind) { for (const fn of this._listeners) fn(kind, this); }
+}

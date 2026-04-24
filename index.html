@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+  <meta name="theme-color" content="#0a0e0a" />
+  <title>Hacker Worlds</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="dialog-bar" class="dialog-bar">
+      <div class="speaker">VEX</div>
+      <div id="dialog-text" class="dialog-text">Booting Anomaly Labs terminal&hellip;</div>
+      <button id="dialog-next" class="dialog-next" aria-label="next">&#9656;</button>
+    </header>
+
+    <main id="view-root" class="view-root">
+      <section id="view-target" class="view view--active">
+        <canvas id="game-canvas" width="360" height="480"></canvas>
+        <div id="hud" class="hud">
+          <div>X: <span id="hud-x">0</span></div>
+          <div>Y: <span id="hud-y">0</span></div>
+          <div>HP: <span id="hud-hp">100</span></div>
+        </div>
+        <div id="touch-pad" class="touch-pad">
+          <button data-dir="up"    class="pad-btn">&#9650;</button>
+          <button data-dir="left"  class="pad-btn">&#9664;</button>
+          <button data-dir="down"  class="pad-btn">&#9660;</button>
+          <button data-dir="right" class="pad-btn">&#9654;</button>
+        </div>
+      </section>
+
+      <section id="view-scanner" class="view">
+        <div class="scanner">
+          <div class="scanner-row">
+            <label>Value
+              <input id="scan-value" type="number" inputmode="numeric" value="0" />
+            </label>
+            <label>Type
+              <select id="scan-type">
+                <option value="int32">4 byte int</option>
+              </select>
+            </label>
+          </div>
+          <div class="scanner-row">
+            <button id="btn-first-scan" class="primary">First Scan</button>
+            <button id="btn-next-scan">Next Scan</button>
+            <button id="btn-reset-scan" class="ghost">Reset</button>
+          </div>
+          <div class="scanner-row scanner-row--filter">
+            <label class="check"><input type="radio" name="filter" value="exact" checked /> exact value</label>
+            <label class="check"><input type="radio" name="filter" value="changed" /> changed</label>
+            <label class="check"><input type="radio" name="filter" value="unchanged" /> unchanged</label>
+          </div>
+          <div class="scan-status" id="scan-status">No scan yet.</div>
+          <ul id="scan-results" class="scan-results"></ul>
+
+          <div class="watchlist-header">Watchlist</div>
+          <ul id="watchlist" class="watchlist"></ul>
+        </div>
+      </section>
+    </main>
+
+    <nav class="tabs">
+      <button class="tab tab--active" data-view="target">AssaultZone</button>
+      <button class="tab" data-view="scanner">Scanner</button>
+    </nav>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

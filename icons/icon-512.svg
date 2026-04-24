@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#06080a"/>
+  <rect x="48" y="48" width="416" height="416" fill="none" stroke="#4ade80" stroke-width="8"/>
+  <text x="256" y="246" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="92" font-weight="700" fill="#4ade80">HW</text>
+  <text x="256" y="340" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="34" fill="#22d3ee">0xDEADBEEF</text>
+</svg>
