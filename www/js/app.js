@@ -5,6 +5,7 @@ import { Scanner }     from "./scanner.js";
 import { Dialog }      from "./dialog.js";
 import { Desktop }     from "./desktop.js";
 import { MatrixRain }  from "./matrix-rain.js";
+import { Timer }       from "./timer.js";
 import { runBoot }     from "./boot.js";
 import { audio }       from "./audio.js";
 import { MISSIONS_BY_ID } from "./missions/index.js";
@@ -57,12 +58,55 @@ function setupMuteButton() {
   });
 }
 
-async function boot() {
-  // Wire the mute toggle up before the boot sequence so users (and tests)
-  // can flip audio off the moment the page loads.
-  setupMuteButton();
+// ---- Trace bar (mission timer) ----
 
-  // Cosmetic boot sequence; users can tap-skip.
+function formatTime(secs) {
+  const s = Math.max(0, Math.ceil(secs));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function showTraceBar(duration) {
+  const bar = document.getElementById("trace-bar");
+  const fill = document.getElementById("trace-fill");
+  const time = document.getElementById("trace-time");
+  bar.removeAttribute("hidden");
+  bar.removeAttribute("data-urgency");
+  fill.style.width = "100%";
+  time.textContent = formatTime(duration);
+}
+function hideTraceBar() {
+  const bar = document.getElementById("trace-bar");
+  bar.setAttribute("hidden", "");
+}
+function updateTraceBar(remaining, duration) {
+  const fill = document.getElementById("trace-fill");
+  const time = document.getElementById("trace-time");
+  const bar  = document.getElementById("trace-bar");
+  const frac = duration > 0 ? remaining / duration : 0;
+  fill.style.width = (frac * 100).toFixed(2) + "%";
+  time.textContent = formatTime(remaining);
+  if (frac <= 0.10)      bar.setAttribute("data-urgency", "crit");
+  else if (frac <= 0.25) bar.setAttribute("data-urgency", "warn");
+  else                   bar.removeAttribute("data-urgency");
+}
+
+// ---- Heartbeat (last 10s) ----
+
+class Heartbeat {
+  constructor() { this._iv = null; }
+  start() {
+    if (this._iv) return;
+    audio.heartbeat();
+    this._iv = setInterval(() => audio.heartbeat(), 900);
+  }
+  stop() {
+    if (this._iv) { clearInterval(this._iv); this._iv = null; }
+  }
+}
+
+async function boot() {
+  setupMuteButton();
   await runBoot({ audio });
 
   const switchTo = setupTabs();
@@ -71,38 +115,82 @@ async function boot() {
   const target   = new AssaultZone(document.getElementById("game-canvas"), { audio });
   target.start();
 
-  // Matrix rain only runs while the hub is visible — saves battery on phones.
   const rain = new MatrixRain(document.getElementById("matrix-rain"));
+  const heartbeat = new Heartbeat();
 
   let activeTeardown = null;
   let activeId = null;
+  let activeTimer = null;
 
-  function endMission() {
+  function clearActiveMission() {
     if (activeTeardown) { activeTeardown(); activeTeardown = null; }
-    activeId = null;
+    if (activeTimer)    { activeTimer.stop(); activeTimer = null; }
+    heartbeat.stop();
     target.reset();
     scanner.reset();
     scanner.clearWatchlist();
     dialog.clear();
+    hideTraceBar();
+  }
+
+  function endMission() {
+    clearActiveMission();
+    activeId = null;
     setMode("hub");
     showHub();
     rain.start();
   }
 
+  function failMission(reason) {
+    if (!activeId) return;
+    const $sub = document.getElementById("fail-sub");
+    if ($sub) $sub.textContent = reason || "session terminated";
+    document.getElementById("fail-overlay").removeAttribute("hidden");
+    audio.fail();
+    if (activeTeardown) { activeTeardown(); activeTeardown = null; }
+    if (activeTimer)    { activeTimer.stop(); activeTimer = null; }
+    heartbeat.stop();
+  }
+
+  function hideFailOverlay() {
+    document.getElementById("fail-overlay").setAttribute("hidden", "");
+  }
+
   function launchMission(id) {
     const m = MISSIONS_BY_ID[id];
     if (!m) return;
-    activeId = id;
     audio.tap();
 
-    target.reset();
-    scanner.reset();
-    scanner.clearWatchlist();
-    dialog.clear();
+    // If a mission is already running, tear it down first.
+    clearActiveMission();
+    hideFailOverlay();
 
+    activeId = id;
     setMode("mission");
     showMission(switchTo);
     rain.stop();
+
+    if (m.timeLimit) {
+      showTraceBar(m.timeLimit);
+      activeTimer = new Timer({
+        duration: m.timeLimit,
+        onTick: (rem, dur) => updateTraceBar(rem, dur),
+        onUrgency: (frac) => {
+          if (frac <= 0.10) {
+            heartbeat.start();
+            audio.urgent();
+            dialog.say("VEX", "Ten seconds. Move.");
+          } else if (frac <= 0.25) {
+            audio.urgent();
+            dialog.say("VEX", "Quarter trace remaining. Hurry up.");
+          } else if (frac <= 0.5) {
+            dialog.say("VEX", "Halfway through trace window. Stay sharp.");
+          }
+        },
+        onTimeout: () => failMission("trace complete · " + m.title),
+      });
+      activeTimer.start();
+    }
 
     activeTeardown = m.start({
       dialog, scanner, target, switchTo,
@@ -113,8 +201,11 @@ async function boot() {
         audio.complete();
         showToast("Mission Complete · " + m.title);
         if (message) dialog.say("VEX", message);
+        if (activeTimer) { activeTimer.stop(); activeTimer = null; }
+        heartbeat.stop();
         setTimeout(() => { if (activeId === id) endMission(); }, 3200);
       },
+      fail(reason) { failMission(reason); },
     });
   }
 
@@ -127,6 +218,19 @@ async function boot() {
     if (activeId) { audio.tap(); endMission(); }
   });
 
+  document.getElementById("btn-retry").addEventListener("click", () => {
+    audio.tap();
+    const id = activeId;
+    if (!id) { hideFailOverlay(); return; }
+    hideFailOverlay();
+    launchMission(id);
+  });
+  document.getElementById("btn-quit-mission").addEventListener("click", () => {
+    audio.tap();
+    hideFailOverlay();
+    endMission();
+  });
+
   setMode("hub");
   showHub();
   rain.start();
@@ -136,7 +240,6 @@ async function boot() {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
 
-  // Test/debug hook (no-op for normal users, used by Playwright smoke tests).
   window.__hw = { target, scanner, dialog, missionState, launchMission, endMission, audio };
 }
 

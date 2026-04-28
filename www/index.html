@@ -17,6 +17,14 @@
       <button id="dialog-next" class="dialog-next" aria-label="next">&#9656;</button>
     </header>
 
+    <div id="trace-bar" class="trace-bar" hidden>
+      <div class="trace-label">
+        <span class="trace-tag">TRACE</span>
+        <span id="trace-time" class="trace-time">0:00</span>
+      </div>
+      <div class="trace-track"><div id="trace-fill" class="trace-fill"></div></div>
+    </div>
+
     <main id="view-root" class="view-root">
       <section id="view-hub" class="view view--active">
         <canvas id="matrix-rain" class="matrix-rain" aria-hidden="true"></canvas>
@@ -96,6 +104,17 @@
   <div id="boot-overlay" class="boot-overlay">
     <div id="boot-log" class="boot-log"></div>
     <div class="boot-hint">tap to skip</div>
+  </div>
+
+  <div id="fail-overlay" class="fail-overlay" hidden>
+    <div class="fail-glitch">
+      <div class="fail-title">TRACE COMPLETE</div>
+      <div class="fail-sub" id="fail-sub">session terminated</div>
+    </div>
+    <div class="fail-actions">
+      <button id="btn-retry" class="primary">retry</button>
+      <button id="btn-quit-mission" class="ghost">quit to hub</button>
+    </div>
   </div>
 
   <div id="crt" class="crt" aria-hidden="true"></div>

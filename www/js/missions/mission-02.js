@@ -1,56 +1,52 @@
-// Mission 2 — VITAL SIGNS (HP godmode)
+// Mission 2 — VITAL SIGNS (HP godmode under bleeding pressure)
 //
-// Same loop as M1, but the value-changing trigger is taking damage. Teaches
-// the "decreased" filter mode: when you don't know the exact new value but
-// you know it's lower than before, narrowing by direction is enough.
-//
-// Win when: HP cell is frozen AND the player has stood on a hazard tile
-// while godmode was active (so we know the freeze actually protected them).
+// HP scan + freeze, but the player has a slow bleed wound that ticks down
+// HP every 1.5s. They WILL die if they don't freeze HP fast enough — and a
+// 100s trace clock is also running. Decreased filter is the right tool.
 
 import { memory } from "../sim-memory.js";
 
 export const mission02 = {
   id: "m02",
   title: "VITAL SIGNS",
-  brief: "Freeze your HP for godmode and walk through the spike trap room.",
+  brief: "Bleed-out in progress. Freeze HP through traps before you flatline.",
   prerequisites: ["m01"],
+  timeLimit: 100,
 
   start({ dialog, target, complete }) {
     target.reset();
     target.enableHazards();
+    target.enableBleed(1, 1500);   // -1 HP every 1.5s
 
     dialog.script("VEX", [
-      "Trap room's hot today. The dev wired spike tiles all over the lower floor.",
-      "Same drill as before, different value. Note your HP — should be 100 — then First Scan for it.",
-      "Now walk onto a red X. You'll lose HP. In Scanner, switch to 'decreased' and Next Scan.",
-      "'Decreased' is gold when you don't know the exact new number — it just keeps cells that went down.",
-      "Repeat: take a hit, narrow by 'decreased'. Two or three rounds nails the HP cell.",
-      "Watch it, freeze it. Then walk the trap room. If your HP doesn't move, you're invincible. Mission ends.",
+      "Bad news, recruit — that wound's hemorrhaging. HP drains every second and a half.",
+      "Worse: trap floor's live. Stand on a red X and you'll lose a chunk extra.",
+      "Note your HP, First Scan it. Then take a hit OR just wait — HP will drop on its own.",
+      "Switch the filter to 'decreased' and Next Scan. That's the magic — keeps cells that went DOWN, no matter where.",
+      "Two or three rounds and you'll have it. Watch it, freeze it. Walk the room. Don't flatline.",
     ]);
 
     const hpAddr = memory.addressOfLabel("player.hp");
     let done = false;
-    let hitsWhileFrozen = 0;
     let prevDamageEvents = target.damageEvents;
-
+    let hitsWhileFrozen = 0;
     const interval = setInterval(() => {
       if (done) return;
-      // Count damage events that happened with the HP cell already frozen.
       if (memory.isFrozen(hpAddr) && target.damageEvents > prevDamageEvents) {
         hitsWhileFrozen += target.damageEvents - prevDamageEvents;
       }
       prevDamageEvents = target.damageEvents;
-
       if (memory.isFrozen(hpAddr) && hitsWhileFrozen >= 1) {
         done = true;
-        complete("Godmode confirmed. That's two missions down.");
+        complete("Godmode confirmed. The bleed can't touch you anymore.");
         clearInterval(interval);
       }
-    }, 250);
+    }, 200);
 
     return () => {
       clearInterval(interval);
       target.disableHazards();
+      target.disableBleed();
     };
   },
 };

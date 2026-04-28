@@ -88,6 +88,22 @@ class AudioBank {
     setTimeout(() => this._blip({ freq: 990,  type: "sine", duration: 0.20, volume: 0.55 }), 130);
     setTimeout(() => this._blip({ freq: 1320, type: "sine", duration: 0.30, volume: 0.55 }), 280);
   }
+  heartbeat() {
+    if (this.muted) return;
+    this._blip({ freq: 110, type: "sine",   duration: 0.06, volume: 0.55 });
+    setTimeout(() => this._blip({ freq: 90, type: "sine", duration: 0.08, volume: 0.45 }), 90);
+  }
+  fail() {
+    if (this.muted) return;
+    this._blip({ freq: 220, type: "sawtooth", duration: 0.20, volume: 0.55, slide: -120 });
+    setTimeout(() => this._blip({ freq: 150, type: "sawtooth", duration: 0.30, volume: 0.55, slide: -100 }), 200);
+    setTimeout(() => this._blip({ freq: 90,  type: "square",   duration: 0.50, volume: 0.55 }), 480);
+  }
+  urgent() {
+    if (this.muted) return;
+    this._blip({ freq: 880, type: "square", duration: 0.07, volume: 0.45 });
+    setTimeout(() => this._blip({ freq: 1100, type: "square", duration: 0.07, volume: 0.45 }), 90);
+  }
 }
 
 export const audio = new AudioBank();

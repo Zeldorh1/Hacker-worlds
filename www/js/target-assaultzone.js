@@ -69,6 +69,11 @@ export class AssaultZone {
     this.damageEvents = 0;
     this.deaths = 0;
 
+    this.bleedActive = false;
+    this.bleedRate = 1;        // hp drained per bleedInterval
+    this.bleedIntervalMs = 1500;
+    this.lastBleedAt = 0;
+
     // Bind player stats to fake memory addresses. The Scanner sees these
     // as ordinary 4-byte ints among thousands of noise addresses.
     this.addrX    = memory.bindGameValue("player.x",    () => this.player.x,    v => { this.player.x = v; });
@@ -89,9 +94,11 @@ export class AssaultZone {
     this.player.hp = 100;
     this.player.ammo = 30;
     this.hazardsActive = false;
+    this.bleedActive = false;
     this.lastDamageAt = 0;
     this.damageEvents = 0;
     this.deaths = 0;
+    this.lastBleedAt = 0;
     // Unfreeze any cells from a previous run.
     for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo]) {
       memory.setFrozen(a, false);
@@ -100,6 +107,13 @@ export class AssaultZone {
 
   enableHazards()  { this.hazardsActive = true; }
   disableHazards() { this.hazardsActive = false; }
+  enableBleed(rate = 1, intervalMs = 1500) {
+    this.bleedActive = true;
+    this.bleedRate = rate;
+    this.bleedIntervalMs = intervalMs;
+    this.lastBleedAt = performance.now();
+  }
+  disableBleed() { this.bleedActive = false; }
 
   // ---- Input ----
 
@@ -163,6 +177,26 @@ export class AssaultZone {
       if (dx !== 0 || dy !== 0) {
         this._tryMove(dx, dy);
         this.lastMoveAt = now;
+      }
+    }
+
+    // Bleed: a wound that ticks down HP regardless of position. Frozen HP
+    // lets the player survive it indefinitely — exactly the lesson.
+    if (this.bleedActive && now - this.lastBleedAt > this.bleedIntervalMs) {
+      this.lastBleedAt = now;
+      const hpFrozen = memory.isFrozen(this.addrHP);
+      this.player.hp -= this.bleedRate;
+      this.lastDamageAt = now;
+      this.damageEvents++;
+      if (hpFrozen) {
+        this._flashBlock();
+      } else {
+        this._flashHit();
+        if (this.audio) this.audio.damage();
+        if (this.player.hp <= 0) {
+          this.deaths++;
+          this.player.hp = 100;
+        }
       }
     }
 
