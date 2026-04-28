@@ -19,6 +19,28 @@ export const mission04 = {
   prerequisites: ["m03"],
   timeLimit: 110,
 
+  hints: [
+    {
+      id: "pick-enemy",
+      min: 14,
+      when: ({ scannerState }) => scannerState.lastResults === null,
+      say: "Pick any red square (enemy) in ac_anomaly. Watch its X coord shift between two values as it patrols. First Scan one of those numbers in the Scanner.",
+    },
+    {
+      id: "use-changed-or-direction",
+      min: 5,
+      when: ({ scannerState }) =>
+        scannerState.lastResults && scannerState.lastResults.length > 1,
+      say: "Wait a beat for the enemy to walk, then Next Scan with 'changed' (or 'increased'/'decreased' if you saw which way they moved). Most cells will drop.",
+    },
+    {
+      id: "watch-enemy-x",
+      when: ({ scannerState, watchSize }) =>
+        scannerState.lastResults && scannerState.lastResults.length <= 2 && watchSize === 0,
+      say: "Looks narrowed. '+ watch' the survivor. The radar minimap appears in the canvas corner the moment any enemy.x is in your watchlist.",
+    },
+  ],
+
   start({ dialog, target, complete }) {
     target.reset();
     target.enableEnemies();

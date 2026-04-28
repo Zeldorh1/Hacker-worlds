@@ -13,6 +13,33 @@ export const mission02 = {
   prerequisites: ["m01"],
   timeLimit: 100,
 
+  hints: [
+    {
+      id: "first-scan-hp",
+      min: 12,
+      when: ({ scannerState }) => scannerState.lastResults === null,
+      say: "Note your HP in the HUD (it'll be 100 right at start). Tap SCANNER, type 100, tap First Scan.",
+    },
+    {
+      id: "use-decreased",
+      min: 6,
+      when: ({ scannerState, target }) =>
+        scannerState.lastResults && scannerState.lastResults.length > 1 && target.player.hp < 100,
+      say: "Your HP just dropped. Switch the filter to 'decreased' and tap Next Scan — it keeps any cell that went DOWN, no value typing needed.",
+    },
+    {
+      id: "watch-hp",
+      when: ({ scannerState, watchSize }) =>
+        scannerState.lastResults && scannerState.lastResults.length === 1 && watchSize === 0,
+      say: "That's your HP cell. '+ watch' it.",
+    },
+    {
+      id: "freeze-hp",
+      when: ({ watchSize, anyFrozen }) => watchSize > 0 && !anyFrozen,
+      say: "Tick freeze. Walk into a red X on ac_anomaly — your HP will refuse to drop. Mission ends after one blocked hit.",
+    },
+  ],
+
   start({ dialog, target, complete }) {
     target.reset();
     target.enableHazards();

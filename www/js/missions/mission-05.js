@@ -15,6 +15,28 @@ export const mission05 = {
   prerequisites: ["m04"],
   timeLimit: 100,
 
+  hints: [
+    {
+      id: "scan-100",
+      min: 12,
+      when: ({ scannerState }) => scannerState.lastResults === null,
+      say: "Every enemy spawns at HP=100. Type 100 in the Scanner and tap First Scan.",
+    },
+    {
+      id: "decreased-after-drain",
+      min: 5,
+      when: ({ scannerState }) =>
+        scannerState.lastResults && scannerState.lastResults.length > 2,
+      say: "Hostiles are taking fire — HP drains slowly. Switch the filter to 'decreased' and tap Next Scan. Repeat once or twice.",
+    },
+    {
+      id: "watch-hp",
+      when: ({ scannerState, watchSize }) =>
+        scannerState.lastResults && scannerState.lastResults.length <= 2 && watchSize === 0,
+      say: "'+ watch' the surviving HP cell. ESP labels and HP bars pop on every contact.",
+    },
+  ],
+
   start({ dialog, target, complete }) {
     target.reset();
     target.enableEnemies();

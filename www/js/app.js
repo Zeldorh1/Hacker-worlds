@@ -9,6 +9,8 @@ import { Timer }       from "./timer.js";
 import { Detection }   from "./anticheat.js";
 import { runBoot }     from "./boot.js";
 import { Tutorial }    from "./tutorial.js";
+import { HintEngine, hintsEnabled, setHintsEnabled } from "./hints.js";
+import { memory }      from "./sim-memory.js";
 import { audio }       from "./audio.js";
 import { MISSIONS_BY_ID } from "./missions/index.js";
 import { missionState }   from "./mission-state.js";
@@ -57,6 +59,19 @@ function setupMuteButton() {
     audio.toggleMute();
     refresh();
     if (!audio.isMuted()) audio.tap();
+  });
+}
+
+function setupHintsButton() {
+  const btn = document.getElementById("btn-hints");
+  if (!btn) return;
+  function refresh() { btn.textContent = "hints: " + (hintsEnabled() ? "on" : "off"); }
+  refresh();
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setHintsEnabled(!hintsEnabled());
+    refresh();
+    audio.tap();
   });
 }
 
@@ -130,6 +145,7 @@ class Heartbeat {
 
 async function boot() {
   setupMuteButton();
+  setupHintsButton();
   await runBoot({ audio });
 
   // Show the orientation slides on first launch.
@@ -152,11 +168,35 @@ async function boot() {
   let activeTimer = null;
   let activeDetection = null;
   let scannerScanUnsub = null;
+  let activeHints = null;
+
+  function activeTabName() {
+    const t = document.querySelector(".tab.tab--active");
+    return t ? t.dataset.view : null;
+  }
+  function buildHintCtx(elapsed) {
+    const watchEls = document.querySelectorAll(".watchlist li[data-addr]");
+    let anyFrozen = false;
+    for (const li of watchEls) {
+      const cb = li.querySelector(".freeze-cb");
+      if (cb && cb.checked) { anyFrozen = true; break; }
+    }
+    return {
+      elapsed,
+      activeTab: activeTabName(),
+      target,
+      memory,
+      scannerState: { lastResults: scanner.lastResults },
+      watchSize: watchEls.length,
+      anyFrozen,
+    };
+  }
 
   function clearActiveMission() {
     if (activeTeardown) { activeTeardown(); activeTeardown = null; }
     if (activeTimer)    { activeTimer.stop(); activeTimer = null; }
     if (activeDetection) { activeDetection.stop(); activeDetection = null; }
+    if (activeHints)    { activeHints.stop(); activeHints = null; }
     if (scannerScanUnsub) { scannerScanUnsub(); scannerScanUnsub = null; }
     heartbeat.stop();
     target.reset();
@@ -239,6 +279,15 @@ async function boot() {
       });
     }
 
+    if (Array.isArray(m.hints) && m.hints.length) {
+      activeHints = new HintEngine({
+        rules: m.hints,
+        dialog,
+        ctxFactory: (elapsed) => buildHintCtx(elapsed),
+      });
+      activeHints.start();
+    }
+
     activeTeardown = m.start({
       dialog, scanner, target, switchTo,
       toast: showToast,
@@ -250,6 +299,7 @@ async function boot() {
         if (message) dialog.say("VEX", message);
         if (activeTimer) { activeTimer.stop(); activeTimer = null; }
         if (activeDetection) { activeDetection.stop(); activeDetection = null; }
+        if (activeHints) { activeHints.stop(); activeHints = null; }
         heartbeat.stop();
         setTimeout(() => { if (activeId === id) endMission(); }, 3200);
       },

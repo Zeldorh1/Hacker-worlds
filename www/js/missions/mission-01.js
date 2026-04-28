@@ -12,6 +12,33 @@ export const mission01 = {
   prerequisites: [],
   timeLimit: 75,
 
+  hints: [
+    {
+      id: "first-scan",
+      min: 18,
+      when: ({ scannerState }) => scannerState.lastResults === null,
+      say: "Note your X in the HUD (top-left of ac_anomaly). Tap the SCANNER tab, type that number, tap First Scan.",
+    },
+    {
+      id: "narrow-after-walk",
+      min: 5,
+      when: ({ scannerState }) =>
+        scannerState.lastResults && scannerState.lastResults.length > 1,
+      say: "Switch to ac_anomaly, walk one step left or right (X changes), come back, type the new X, tap Next Scan. Most matches will drop.",
+    },
+    {
+      id: "watch-survivor",
+      when: ({ scannerState, watchSize }) =>
+        scannerState.lastResults && scannerState.lastResults.length === 1 && watchSize === 0,
+      say: "One match left — that's your X. Tap '+ watch' on it.",
+    },
+    {
+      id: "freeze",
+      when: ({ watchSize, anyFrozen }) => watchSize > 0 && !anyFrozen,
+      say: "Tick the 'freeze' checkbox on your watched address. Then walk on ac_anomaly — if X locks, you nailed it.",
+    },
+  ],
+
   start({ dialog, target, complete, fail }) {
     target.reset();
 

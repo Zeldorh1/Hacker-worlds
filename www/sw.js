@@ -1,5 +1,5 @@
 // Minimal offline cache so the app works on a phone with no signal.
-const CACHE = "hw-v3";
+const CACHE = "hw-v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -12,6 +12,7 @@ const ASSETS = [
   "./js/desktop.js",
   "./js/dialog.js",
   "./js/enemies.js",
+  "./js/hints.js",
   "./js/matrix-rain.js",
   "./js/mission-state.js",
   "./js/music.js",
