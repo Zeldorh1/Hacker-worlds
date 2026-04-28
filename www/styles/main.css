@@ -75,6 +75,17 @@ body[data-mode="hub"] .tabs { display: none; }
   color: var(--fg);
   line-height: 1.35;
   font-size: 13px;
+  cursor: pointer;
+}
+.dialog-text.typing::after {
+  content: "▌";
+  color: var(--accent);
+  margin-left: 1px;
+  animation: blink 0.9s steps(2, start) infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
 }
 .dialog-next {
   background: transparent;
@@ -100,27 +111,53 @@ body[data-mode="hub"] .tabs { display: none; }
 }
 .view--active { display: block; }
 
-/* ---------- Target / AssaultZone ---------- */
+/* ---------- Target / AssaultZone (ac_anomaly homage) ---------- */
 #view-target {
   display: none;
   flex-direction: column;
-  background: #02030a;
+  background: #0a0805;
+  position: relative;
 }
 #view-target.view--active { display: flex; }
 
-#game-canvas {
+.canvas-shake {
+  position: relative;
   flex: 1 1 auto;
+  display: block;
+  overflow: hidden;
+}
+.canvas-shake.shake { animation: shake 0.28s linear; }
+@keyframes shake {
+  0%   { transform: translate(0, 0); }
+  20%  { transform: translate(-4px, 2px); }
+  40%  { transform: translate(3px, -3px); }
+  60%  { transform: translate(-2px, 3px); }
+  80%  { transform: translate(2px, -1px); }
+  100% { transform: translate(0, 0); }
+}
+
+#game-canvas {
   width: 100%;
   height: auto;
-  background: #02030a;
+  background: #0a0805;
   image-rendering: pixelated;
   display: block;
 }
 
+.damage-flash {
+  position: absolute;
+  inset: 0;
+  background: rgba(248, 113, 113, 0.0);
+  pointer-events: none;
+  transition: background 80ms ease-out;
+}
+.damage-flash.hit    { background: rgba(248, 113, 113, 0.45); transition: none; }
+.damage-flash.block  { background: rgba(74, 222, 128, 0.32);  transition: none; }
+
 .hud {
   position: absolute;
   top: 8px; left: 8px;
-  background: rgba(0, 20, 0, 0.65);
+  background: rgba(10, 14, 8, 0.72);
   border: 1px solid var(--accent);
   border-radius: 3px;
   padding: 6px 10px;
@@ -128,6 +165,45 @@ body[data-mode="hub"] .tabs { display: none; }
   line-height: 1.5;
   color: var(--accent);
   pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.hud-map {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: var(--fg-dim);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+.hud-row { display: flex; gap: 6px; align-items: baseline; }
+.hud-row .lbl {
+  color: var(--fg-dim);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  width: 24px;
+  display: inline-block;
+}
+#hud-hp.flash-down { color: var(--danger); animation: hp-glitch 0.4s steps(4, start); }
+#hud-hp.flash-lock { color: var(--accent); text-shadow: 0 0 6px var(--accent); }
+@keyframes hp-glitch {
+  0%   { transform: translateX(0);   filter: hue-rotate(0); }
+  25%  { transform: translateX(-2px); filter: hue-rotate(-30deg); }
+  50%  { transform: translateX(2px);  filter: hue-rotate(20deg); }
+  75%  { transform: translateX(-1px); filter: hue-rotate(0); }
+  100% { transform: translateX(0);   filter: none; }
+}
+.lock {
+  margin-left: 6px;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  padding: 1px 4px;
+  background: var(--warn);
+  color: #2a1a05;
+  border-radius: 2px;
+  animation: lock-pulse 1.2s ease-in-out infinite;
+}
+@keyframes lock-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.6); }
+  50%      { box-shadow: 0 0 0 4px rgba(251, 191, 36, 0); }
 }
 
 .touch-pad {
@@ -243,6 +319,14 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-bottom: 1px solid var(--line);
   font-size: 12px;
 }
+.scan-results li.row-in {
+  animation: row-in 0.32s ease-out both;
+}
+@keyframes row-in {
+  0%   { opacity: 0; transform: translateX(-6px); background: rgba(34, 211, 238, 0.10); }
+  60%  { opacity: 1; transform: translateX(0);    background: rgba(34, 211, 238, 0.04); }
+  100% { opacity: 1; transform: translateX(0);    background: transparent; }
+}
 .scan-results li:last-child { border-bottom: none; }
 .scan-results .addr { color: var(--accent-2); }
 .scan-results .val  { color: var(--fg); min-width: 60px; text-align: right; }
@@ -284,6 +368,17 @@ button:disabled { opacity: 0.4; cursor: default; }
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
   font-size: 12px;
+  transition: background 240ms ease-out, box-shadow 200ms ease-out;
+}
+.watchlist li.changed {
+  background: rgba(34, 211, 238, 0.18);
+}
+.watchlist li.frozen {
+  background: rgba(251, 191, 36, 0.08);
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.watchlist li.frozen.changed {
+  background: rgba(251, 191, 36, 0.18);
 }
 .watchlist li:last-child { border-bottom: none; }
 .watchlist .addr { color: var(--accent-2); }

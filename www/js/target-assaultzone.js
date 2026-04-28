@@ -169,10 +169,19 @@ export class AssaultZone {
     if (this.hazardsActive && now - this.lastHazardTickAt > HAZARD_TICK_MS) {
       this.lastHazardTickAt = now;
       if (this._onHazardTile()) {
+        const hpFrozen = memory.isFrozen(this.addrHP);
+        const before = this.player.hp;
         this.player.hp -= HAZARD_DAMAGE;
         this.lastDamageAt = now;
         this.damageEvents++;
-        if (this.player.hp <= 0) {
+        // Memory.tick() below will overwrite player.hp with the frozen value,
+        // but we still count the event because the hazard fired.
+        if (hpFrozen) {
+          this._flashBlock();
+        } else {
+          this._flashHit();
+        }
+        if (!hpFrozen && this.player.hp <= 0) {
           this.deaths++;
           this.player.hp = 100;
           this.player.x = SPAWN.x;
@@ -187,7 +196,53 @@ export class AssaultZone {
     // HUD reflects current game state.
     document.getElementById("hud-x").textContent  = this.player.x;
     document.getElementById("hud-y").textContent  = this.player.y;
-    document.getElementById("hud-hp").textContent = this.player.hp;
+    const $hp = document.getElementById("hud-hp");
+    $hp.textContent = this.player.hp;
+    const lockedNow = memory.isFrozen(this.addrHP);
+    const $lock = document.getElementById("hud-lock");
+    if ($lock) $lock.hidden = !lockedNow;
+  }
+
+  _flashHit() {
+    const $flash = document.getElementById("damage-flash");
+    const $shake = document.getElementById("canvas-shake");
+    const $hp    = document.getElementById("hud-hp");
+    if ($flash) {
+      $flash.classList.remove("hit", "block");
+      // force reflow to restart animation
+      void $flash.offsetWidth;
+      $flash.classList.add("hit");
+      setTimeout(() => $flash.classList.remove("hit"), 140);
+    }
+    if ($shake) {
+      $shake.classList.remove("shake");
+      void $shake.offsetWidth;
+      $shake.classList.add("shake");
+      setTimeout(() => $shake.classList.remove("shake"), 300);
+    }
+    if ($hp) {
+      $hp.classList.remove("flash-down");
+      void $hp.offsetWidth;
+      $hp.classList.add("flash-down");
+      setTimeout(() => $hp.classList.remove("flash-down"), 420);
+    }
+  }
+
+  _flashBlock() {
+    const $flash = document.getElementById("damage-flash");
+    const $hp    = document.getElementById("hud-hp");
+    if ($flash) {
+      $flash.classList.remove("hit", "block");
+      void $flash.offsetWidth;
+      $flash.classList.add("block");
+      setTimeout(() => $flash.classList.remove("block"), 160);
+    }
+    if ($hp) {
+      $hp.classList.remove("flash-lock");
+      void $hp.offsetWidth;
+      $hp.classList.add("flash-lock");
+      setTimeout(() => $hp.classList.remove("flash-lock"), 300);
+    }
   }
 
   _draw() {
@@ -195,18 +250,23 @@ export class AssaultZone {
     const s = this.scale || 1;
     const T = TILE * s;
 
-    ctx.fillStyle = "#02030a";
+    // Palette: dim sandstone walls, dark sand floor — ac_desert by night.
+    ctx.fillStyle = "#0a0805";
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     for (let y = 0; y < MAP_H; y++) {
       for (let x = 0; x < MAP_W; x++) {
         if (this.map[y][x] === 1) {
-          ctx.fillStyle = "#1f2a33";
+          ctx.fillStyle = "#3a2f1d";
           ctx.fillRect(x * T, y * T, T, T);
-          ctx.strokeStyle = "#2a3a45";
+          ctx.strokeStyle = "#5a4a30";
           ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1);
+          // brick lines
+          ctx.fillStyle = "#1f1a10";
+          ctx.fillRect(x * T, y * T + Math.floor(T / 2), T, 1);
         } else {
-          ctx.fillStyle = "#0a0f12";
+          // floor with subtle grid
+          ctx.fillStyle = ((x + y) & 1) ? "#14110a" : "#181410";
           ctx.fillRect(x * T, y * T, T, T);
         }
       }

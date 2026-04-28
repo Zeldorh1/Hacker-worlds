@@ -77,8 +77,9 @@ export class Scanner {
       return;
     }
     const rows = this.lastResults.slice(0, MAX_RESULT_ROWS);
-    const html = rows.map(r => `
-      <li>
+    // Stagger each row's in-animation so they cascade like a stream.
+    const html = rows.map((r, i) => `
+      <li class="row-in" style="animation-delay:${Math.min(i, 24) * 12}ms">
         <span class="addr">${r.addr}</span>
         <span class="val">${r.value}</span>
         <button class="add" data-addr="${r.addr}">+ watch</button>
@@ -141,15 +142,28 @@ export class Scanner {
   }
 
   // Live-refresh the displayed values in the watchlist so frozen vs. free are
-  // visible without re-scanning.
+  // visible without re-scanning. Pulses a row briefly when its value changes
+  // so the user *sees* memory churning in front of them.
   _tickWatchlist() {
+    const prev = new Map();
     setInterval(() => {
       for (const li of this.$watch.querySelectorAll("li[data-addr]")) {
         const addr = li.dataset.addr;
         const input = li.querySelector(".value-edit");
-        if (input && document.activeElement !== input) {
-          input.value = memory.read(addr);
+        if (!input) continue;
+        const cur = memory.read(addr);
+        const isFrozen = memory.isFrozen(addr);
+        li.classList.toggle("frozen", isFrozen);
+        if (document.activeElement !== input) {
+          input.value = cur;
         }
+        if (prev.has(addr) && prev.get(addr) !== cur) {
+          li.classList.remove("changed");
+          void li.offsetWidth;
+          li.classList.add("changed");
+          setTimeout(() => li.classList.remove("changed"), 350);
+        }
+        prev.set(addr, cur);
       }
     }, 200);
   }

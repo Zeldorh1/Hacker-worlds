@@ -1,17 +1,27 @@
-// Lightweight mentor dialog system. Plays a queue of lines into the dialog bar
-// at the top of the screen; each line advances on tap.
+// Mentor dialog with a typewriter effect.
+// Tap the dialog area or the next button to skip the typewriter on the
+// current line; tap again to advance to the next line.
+
+const TYPE_MS_PER_CHAR = 24;
 
 export class Dialog {
   constructor(root) {
     this.root = root;
-    this.$text = root.querySelector("#dialog-text");
-    this.$next = root.querySelector("#dialog-next");
+    this.$text  = root.querySelector("#dialog-text");
+    this.$next  = root.querySelector("#dialog-next");
+    this.$speak = root.querySelector(".speaker");
     this.queue = [];
     this.onEmpty = null;
-    this.$next.addEventListener("click", () => this.advance());
+
+    this._typingFull = "";   // full text of the current line
+    this._typingIdx = 0;     // chars revealed
+    this._typingTimer = null;
+    this._isTyping = false;
+
+    this.$next.addEventListener("click", () => this.tap());
+    this.$text.addEventListener("click", () => this.tap());
   }
 
-  /** Queue a single line; `who` is shown in the speaker tag. */
   say(who, text) {
     this.queue.push({ who, text });
     if (this.queue.length === 1) this._renderHead();
@@ -19,16 +29,24 @@ export class Dialog {
     return this;
   }
 
-  /** Queue many lines at once. */
   script(who, lines) {
     for (const l of lines) this.say(who, l);
     return this;
+  }
+
+  /** Tap: skip typewriter on current line if mid-type, otherwise advance. */
+  tap() {
+    if (this._isTyping) { this._completeTyping(); return; }
+    this.advance();
   }
 
   advance() {
     if (this.queue.length === 0) return;
     this.queue.shift();
     if (this.queue.length === 0) {
+      this._stopTyping();
+      this.$text.classList.remove("typing");
+      this.$text.textContent = "";
       if (this.onEmpty) this.onEmpty();
     } else {
       this._renderHead();
@@ -37,7 +55,9 @@ export class Dialog {
   }
 
   clear() {
+    this._stopTyping();
     this.queue = [];
+    this.$text.classList.remove("typing");
     this.$text.textContent = "";
     this._refreshNext();
   }
@@ -45,14 +65,43 @@ export class Dialog {
   _renderHead() {
     const head = this.queue[0];
     if (!head) return;
-    this.root.querySelector(".speaker").textContent = head.who;
-    this.$text.textContent = head.text;
+    this.$speak.textContent = head.who;
+    this._startTyping(head.text);
+  }
+
+  _startTyping(text) {
+    this._stopTyping();
+    this._typingFull = text;
+    this._typingIdx = 0;
+    this._isTyping = true;
+    this.$text.classList.add("typing");
+    this.$text.textContent = "";
+    const tick = () => {
+      if (!this._isTyping) return;
+      this._typingIdx++;
+      this.$text.textContent = this._typingFull.slice(0, this._typingIdx);
+      if (this._typingIdx >= this._typingFull.length) {
+        this._completeTyping();
+      } else {
+        this._typingTimer = setTimeout(tick, TYPE_MS_PER_CHAR);
+      }
+    };
+    this._typingTimer = setTimeout(tick, TYPE_MS_PER_CHAR);
+  }
+
+  _completeTyping() {
+    this._stopTyping();
+    this.$text.textContent = this._typingFull;
+    this._isTyping = false;
+  }
+
+  _stopTyping() {
+    if (this._typingTimer) { clearTimeout(this._typingTimer); this._typingTimer = null; }
+    this._isTyping = false;
   }
 
   _refreshNext() {
-    this.$next.disabled = this.queue.length <= 1 && !this.onEmpty;
-    if (this.queue.length === 0) {
-      this.$text.textContent = "";
-    }
+    // Always allow advancing once the queue exists; the tap also skips typing.
+    this.$next.disabled = this.queue.length === 0 && !this.onEmpty;
   }
 }

@@ -33,11 +33,14 @@
       </section>
 
       <section id="view-target" class="view">
-        <canvas id="game-canvas" width="360" height="480"></canvas>
+        <div id="canvas-shake" class="canvas-shake">
+          <canvas id="game-canvas" width="360" height="480"></canvas>
+          <div id="damage-flash" class="damage-flash"></div>
+        </div>
         <div id="hud" class="hud">
-          <div>X: <span id="hud-x">0</span></div>
-          <div>Y: <span id="hud-y">0</span></div>
-          <div>HP: <span id="hud-hp">100</span></div>
+          <div class="hud-map">ac_anomaly · v0.1</div>
+          <div class="hud-row"><span class="lbl">POS</span> <span id="hud-x">0</span>,<span id="hud-y">0</span></div>
+          <div class="hud-row"><span class="lbl">HP</span> <span id="hud-hp">100</span><span id="hud-lock" class="lock" hidden>LOCKED</span></div>
         </div>
         <div id="touch-pad" class="touch-pad">
           <button data-dir="up"    class="pad-btn">&#9650;</button>
@@ -81,8 +84,8 @@
     </main>
 
     <nav class="tabs">
-      <button class="tab tab--active" data-view="target">AssaultZone</button>
-      <button class="tab" data-view="scanner">Scanner</button>
+      <button class="tab tab--active" data-view="target">ac_anomaly</button>
+      <button class="tab" data-view="scanner">scanner</button>
     </nav>
   </div>
 
