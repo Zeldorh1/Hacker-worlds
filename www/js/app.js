@@ -8,6 +8,7 @@ import { MatrixRain }  from "./matrix-rain.js";
 import { Timer }       from "./timer.js";
 import { Detection }   from "./anticheat.js";
 import { runBoot }     from "./boot.js";
+import { Tutorial }    from "./tutorial.js";
 import { audio }       from "./audio.js";
 import { MISSIONS_BY_ID } from "./missions/index.js";
 import { missionState }   from "./mission-state.js";
@@ -130,6 +131,12 @@ class Heartbeat {
 async function boot() {
   setupMuteButton();
   await runBoot({ audio });
+
+  // Show the orientation slides on first launch.
+  const tutorial = new Tutorial({ audio });
+  if (!Tutorial.hasSeen()) {
+    await tutorial.show();
+  }
 
   const switchTo = setupTabs();
   const dialog   = new Dialog(document.getElementById("dialog-bar"), { audio });
@@ -270,6 +277,12 @@ async function boot() {
     audio.tap();
     hideFailOverlay();
     endMission();
+  });
+
+  document.getElementById("btn-tutorial").addEventListener("click", (e) => {
+    e.stopPropagation();
+    audio.tap();
+    tutorial.show();
   });
 
   setMode("hub");

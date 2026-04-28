@@ -45,6 +45,7 @@
           <ul id="contract-list" class="contract-list"></ul>
           <div class="hub-footer">
             <button id="btn-mute" class="ghost small" aria-label="toggle sound">audio: on</button>
+            <button id="btn-tutorial" class="ghost small">tutorial</button>
             <button id="btn-reset-progress" class="ghost small">reset progress</button>
           </div>
         </div>
@@ -118,6 +119,21 @@
   <div id="boot-overlay" class="boot-overlay">
     <div id="boot-log" class="boot-log"></div>
     <div class="boot-hint">tap to skip</div>
+  </div>
+
+  <div id="tutorial-overlay" class="tutorial-overlay" hidden>
+    <div class="tutorial-card">
+      <div class="tutorial-header">
+        <div class="tutorial-tag" id="tutorial-tag">ORIENTATION · 1 / 5</div>
+        <button id="btn-skip-tutorial" class="ghost small">skip</button>
+      </div>
+      <div id="tutorial-slide" class="tutorial-slide"></div>
+      <div class="tutorial-dots" id="tutorial-dots"></div>
+      <div class="tutorial-actions">
+        <button id="btn-tutorial-prev" class="ghost">back</button>
+        <button id="btn-tutorial-next" class="primary">next</button>
+      </div>
+    </div>
   </div>
 
   <div id="fail-overlay" class="fail-overlay" hidden>

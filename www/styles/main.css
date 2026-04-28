@@ -751,6 +751,85 @@ body[data-mode="hub"] .detection-bar { display: none; }
   100% { transform: translate(0,0); }
 }
 
+/* ---------- Tutorial overlay ---------- */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8000;
+  background: rgba(2, 6, 12, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.tutorial-overlay[hidden] { display: none; }
+.tutorial-card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--bg-2);
+  border: 1px solid var(--accent-2);
+  border-radius: 4px;
+  padding: 18px 18px 14px;
+  box-shadow: 0 0 32px rgba(34, 211, 238, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tutorial-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tutorial-tag {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--accent-2);
+  font-weight: 700;
+}
+.tutorial-slide {
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tutorial-title {
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.tutorial-body p {
+  margin: 0 0 8px;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.tutorial-body p + p { color: var(--fg-dim); }
+.tutorial-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+.tutorial-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line);
+  transition: background 200ms ease-out, transform 200ms ease-out;
+}
+.tutorial-dot.active {
+  background: var(--accent-2);
+  transform: scale(1.4);
+}
+.tutorial-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tutorial-actions button { flex: 1 1 auto; padding: 10px 12px; }
+.tutorial-actions button:disabled { visibility: hidden; }
+
 /* ---------- Boot overlay ---------- */
 .boot-overlay {
   position: fixed;
