@@ -1,6 +1,7 @@
 // Memory Scanner UI controller — Cheat Engine clone, simplified.
 
 import { memory } from "./sim-memory.js";
+import { getToolName, setToolName, isToolFlagged } from "./anticheat.js";
 
 const MAX_RESULT_ROWS = 200;
 
@@ -23,8 +24,26 @@ export class Scanner {
     this.$next.addEventListener("click",  () => this.nextScan());
     this.$reset.addEventListener("click", () => this.reset());
 
+    this.$tool     = root.querySelector("#tool-name");
+    this.$toolRow  = root.querySelector(".tool-row");
+    this.$toolFlag = root.querySelector("#tool-flag");
+    if (this.$tool) {
+      this.$tool.value = getToolName();
+      this._refreshToolFlag();
+      this.$tool.addEventListener("input", () => {
+        setToolName(this.$tool.value);
+        this._refreshToolFlag();
+      });
+    }
+
     this.reset();
     this._tickWatchlist();
+  }
+
+  _refreshToolFlag() {
+    const flagged = isToolFlagged(this.$tool ? this.$tool.value : undefined);
+    if (this.$toolRow)  this.$toolRow.classList.toggle("flagged", flagged);
+    if (this.$toolFlag) this.$toolFlag.hidden = !flagged;
   }
 
   _filterMode() {
@@ -59,6 +78,7 @@ export class Scanner {
     this.$status.textContent = `${this.lastResults.length} match(es) for ${v}.`;
     if (this.audio) this.audio.scan();
     this._emit("scan");
+    this._emit("scan-action");
   }
 
   nextScan() {
@@ -72,6 +92,7 @@ export class Scanner {
     this.$status.textContent = `${this.lastResults.length} match(es) after filter (${mode}).`;
     if (this.audio) this.audio.scan();
     this._emit("scan");
+    this._emit("scan-action");
   }
 
   _renderResults() {

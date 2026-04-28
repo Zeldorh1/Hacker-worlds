@@ -6,6 +6,7 @@ import { Dialog }      from "./dialog.js";
 import { Desktop }     from "./desktop.js";
 import { MatrixRain }  from "./matrix-rain.js";
 import { Timer }       from "./timer.js";
+import { Detection }   from "./anticheat.js";
 import { runBoot }     from "./boot.js";
 import { audio }       from "./audio.js";
 import { MISSIONS_BY_ID } from "./missions/index.js";
@@ -91,6 +92,27 @@ function updateTraceBar(remaining, duration) {
   else                   bar.removeAttribute("data-urgency");
 }
 
+function showDetectionBar() {
+  const bar = document.getElementById("detection-bar");
+  bar.removeAttribute("hidden");
+  bar.removeAttribute("data-urgency");
+  document.getElementById("detection-fill").style.width = "0%";
+  document.getElementById("detection-pct").textContent = "0%";
+}
+function hideDetectionBar() {
+  document.getElementById("detection-bar").setAttribute("hidden", "");
+}
+function updateDetectionBar(value) {
+  const bar  = document.getElementById("detection-bar");
+  const fill = document.getElementById("detection-fill");
+  const pct  = document.getElementById("detection-pct");
+  fill.style.width = value.toFixed(1) + "%";
+  pct.textContent = Math.round(value) + "%";
+  if (value >= 80)      bar.setAttribute("data-urgency", "crit");
+  else if (value >= 50) bar.setAttribute("data-urgency", "warn");
+  else                  bar.removeAttribute("data-urgency");
+}
+
 // ---- Heartbeat (last 10s) ----
 
 class Heartbeat {
@@ -121,16 +143,21 @@ async function boot() {
   let activeTeardown = null;
   let activeId = null;
   let activeTimer = null;
+  let activeDetection = null;
+  let scannerScanUnsub = null;
 
   function clearActiveMission() {
     if (activeTeardown) { activeTeardown(); activeTeardown = null; }
     if (activeTimer)    { activeTimer.stop(); activeTimer = null; }
+    if (activeDetection) { activeDetection.stop(); activeDetection = null; }
+    if (scannerScanUnsub) { scannerScanUnsub(); scannerScanUnsub = null; }
     heartbeat.stop();
     target.reset();
     scanner.reset();
     scanner.clearWatchlist();
     dialog.clear();
     hideTraceBar();
+    hideDetectionBar();
   }
 
   function endMission() {
@@ -192,6 +219,19 @@ async function boot() {
       activeTimer.start();
     }
 
+    if (m.detection) {
+      showDetectionBar();
+      activeDetection = new Detection({
+        onChange: (v) => updateDetectionBar(v),
+        onTrip:   () => failMission("process terminated · anti-cheat"),
+      });
+      activeDetection.start();
+      // Each scan action bumps detection if the tool name is flagged.
+      scannerScanUnsub = scanner.on((kind) => {
+        if (kind === "scan-action" && activeDetection) activeDetection.noteScan();
+      });
+    }
+
     activeTeardown = m.start({
       dialog, scanner, target, switchTo,
       toast: showToast,
@@ -202,6 +242,7 @@ async function boot() {
         showToast("Mission Complete · " + m.title);
         if (message) dialog.say("VEX", message);
         if (activeTimer) { activeTimer.stop(); activeTimer = null; }
+        if (activeDetection) { activeDetection.stop(); activeDetection = null; }
         heartbeat.stop();
         setTimeout(() => { if (activeId === id) endMission(); }, 3200);
       },

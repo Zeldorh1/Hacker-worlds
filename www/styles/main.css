@@ -637,6 +637,76 @@ body[data-mode="hub"] .trace-bar { display: none; }
   50%      { opacity: 0.55; }
 }
 
+/* ---------- Detection bar (anti-cheat sweep meter) ---------- */
+.detection-bar {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.detection-bar[hidden],
+body[data-mode="hub"] .detection-bar { display: none; }
+.detection-bar .trace-tag { color: #c084fc; }
+.detection-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: linear-gradient(90deg, #c084fc, #7e22ce);
+  transition: width 200ms linear, background 200ms ease-out;
+}
+.detection-bar[data-urgency="warn"] .detection-fill {
+  background: linear-gradient(90deg, var(--warn), #b45309);
+}
+.detection-bar[data-urgency="warn"] #detection-pct { color: var(--warn); }
+.detection-bar[data-urgency="crit"] .detection-fill {
+  background: linear-gradient(90deg, var(--danger), #991b1b);
+  animation: trace-pulse 0.6s ease-in-out infinite;
+}
+.detection-bar[data-urgency="crit"] #detection-pct {
+  color: var(--danger);
+  animation: trace-flicker 0.18s steps(2) infinite;
+}
+
+/* ---------- Tool name field (anti-detection scanner UI) ---------- */
+.tool-row {
+  align-items: flex-end;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 10px;
+}
+.tool-label {
+  flex: 1 1 auto;
+}
+.tool-label input {
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  width: 100%;
+}
+.tool-row.flagged .tool-label input {
+  border-color: var(--danger);
+  color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(248,113,113,0.25);
+  animation: trace-flicker 0.5s steps(2) infinite;
+}
+.tool-flag {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  padding: 4px 8px;
+  border-radius: 3px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+}
+
 /* ---------- Fail overlay ---------- */
 .fail-overlay {
   position: fixed;

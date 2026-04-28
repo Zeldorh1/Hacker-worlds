@@ -25,6 +25,14 @@
       <div class="trace-track"><div id="trace-fill" class="trace-fill"></div></div>
     </div>
 
+    <div id="detection-bar" class="detection-bar" hidden>
+      <div class="trace-label">
+        <span class="trace-tag">DETECT</span>
+        <span id="detection-pct" class="trace-time">0%</span>
+      </div>
+      <div class="trace-track"><div id="detection-fill" class="detection-fill"></div></div>
+    </div>
+
     <main id="view-root" class="view-root">
       <section id="view-hub" class="view view--active">
         <canvas id="matrix-rain" class="matrix-rain" aria-hidden="true"></canvas>
@@ -62,6 +70,12 @@
 
       <section id="view-scanner" class="view">
         <div class="scanner">
+          <div class="scanner-row tool-row">
+            <label class="tool-label">tool process / window
+              <input id="tool-name" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            </label>
+            <span id="tool-flag" class="tool-flag" hidden>FLAGGED</span>
+          </div>
           <div class="scanner-row">
             <label>Value
               <input id="scan-value" type="number" inputmode="numeric" value="0" />
