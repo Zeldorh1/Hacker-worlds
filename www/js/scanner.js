@@ -36,6 +36,17 @@ export class Scanner {
     this.$results.innerHTML = '<li class="empty">No scan yet. Enter a value and tap "First Scan".</li>';
     this.$status.textContent = "No scan yet.";
     this.$next.disabled = true;
+    if (this.$value) this.$value.value = "0";
+    const exact = this.root.querySelector('input[name="filter"][value="exact"]');
+    if (exact) exact.checked = true;
+  }
+
+  clearWatchlist() {
+    for (const addr of [...this.watch.keys()]) {
+      memory.setFrozen(addr, false);
+      this.watch.delete(addr);
+    }
+    this._renderWatchlist();
   }
 
   firstScan() {

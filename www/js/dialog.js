@@ -36,6 +36,12 @@ export class Dialog {
     this._refreshNext();
   }
 
+  clear() {
+    this.queue = [];
+    this.$text.textContent = "";
+    this._refreshNext();
+  }
+
   _renderHead() {
     const head = this.queue[0];
     if (!head) return;

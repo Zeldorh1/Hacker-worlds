@@ -3,21 +3,36 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
-  <meta name="theme-color" content="#0a0e0a" />
+  <meta name="theme-color" content="#06080a" />
   <title>Hacker Worlds</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="stylesheet" href="./styles/main.css" />
 </head>
-<body>
+<body data-mode="hub">
   <div id="app">
     <header id="dialog-bar" class="dialog-bar">
+      <button id="btn-back" class="dialog-back" aria-label="back to contracts">&#9001;</button>
       <div class="speaker">VEX</div>
       <div id="dialog-text" class="dialog-text">Booting Anomaly Labs terminal&hellip;</div>
       <button id="dialog-next" class="dialog-next" aria-label="next">&#9656;</button>
     </header>
 
     <main id="view-root" class="view-root">
-      <section id="view-target" class="view view--active">
+      <section id="view-hub" class="view view--active">
+        <div class="hub">
+          <div class="hub-header">
+            <div class="hub-brand">ANOMALY LABS</div>
+            <div class="hub-sub">/ contracts terminal</div>
+          </div>
+          <div class="hub-progress" id="hub-progress">PROGRESS: 0/0</div>
+          <ul id="contract-list" class="contract-list"></ul>
+          <div class="hub-footer">
+            <button id="btn-reset-progress" class="ghost small">reset progress</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-target" class="view">
         <canvas id="game-canvas" width="360" height="480"></canvas>
         <div id="hud" class="hud">
           <div>X: <span id="hud-x">0</span></div>
@@ -50,9 +65,11 @@
             <button id="btn-reset-scan" class="ghost">Reset</button>
           </div>
           <div class="scanner-row scanner-row--filter">
-            <label class="check"><input type="radio" name="filter" value="exact" checked /> exact value</label>
+            <label class="check"><input type="radio" name="filter" value="exact" checked /> exact</label>
             <label class="check"><input type="radio" name="filter" value="changed" /> changed</label>
             <label class="check"><input type="radio" name="filter" value="unchanged" /> unchanged</label>
+            <label class="check"><input type="radio" name="filter" value="decreased" /> decreased</label>
+            <label class="check"><input type="radio" name="filter" value="increased" /> increased</label>
           </div>
           <div class="scan-status" id="scan-status">No scan yet.</div>
           <ul id="scan-results" class="scan-results"></ul>

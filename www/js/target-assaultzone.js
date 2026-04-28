@@ -6,6 +6,9 @@ import { memory } from "./sim-memory.js";
 const TILE = 16;
 const MAP_W = 22;
 const MAP_H = 30;
+const SPAWN = { x: 5, y: 5 };
+const HAZARD_TICK_MS = 650;
+const HAZARD_DAMAGE = 8;
 
 // Static map: 0 = floor, 1 = wall. Generated once.
 function buildMap() {
@@ -22,10 +25,28 @@ function buildMap() {
   return m;
 }
 
+// Pick floor tiles for spike traps — deterministic so the layout is stable
+// from one play to the next.
+function buildHazards(map) {
+  const list = [];
+  let seed = 0x1234;
+  const rng = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed; };
+  let placed = 0;
+  for (let attempt = 0; attempt < 400 && placed < 14; attempt++) {
+    const x = 1 + (rng() % (MAP_W - 2));
+    const y = 6 + (rng() % (MAP_H - 8));
+    if (map[y][x] === 1) continue;
+    if (Math.abs(x - SPAWN.x) + Math.abs(y - SPAWN.y) < 4) continue;
+    list.push({ x, y });
+    placed++;
+  }
+  return list;
+}
+
 class Player {
   constructor() {
-    this.x = 5;     // tile coords; small ints so the scanner has work to do
-    this.y = 5;
+    this.x = SPAWN.x;
+    this.y = SPAWN.y;
     this.hp = 100;
     this.ammo = 30;
   }
@@ -36,16 +57,22 @@ export class AssaultZone {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.map = buildMap();
+    this.hazards = buildHazards(this.map);
+    this.hazardsActive = false;
     this.player = new Player();
     this.input = { up: false, down: false, left: false, right: false };
     this.lastMoveAt = 0;
     this.moveCooldownMs = 110;
+    this.lastHazardTickAt = 0;
+    this.lastDamageAt = 0;
+    this.damageEvents = 0;
+    this.deaths = 0;
 
     // Bind player stats to fake memory addresses. The Scanner sees these
     // as ordinary 4-byte ints among thousands of noise addresses.
-    this.addrX = memory.bindGameValue("player.x", () => this.player.x, v => { this.player.x = v; });
-    this.addrY = memory.bindGameValue("player.y", () => this.player.y, v => { this.player.y = v; });
-    this.addrHP = memory.bindGameValue("player.hp", () => this.player.hp, v => { this.player.hp = v; });
+    this.addrX    = memory.bindGameValue("player.x",    () => this.player.x,    v => { this.player.x = v; });
+    this.addrY    = memory.bindGameValue("player.y",    () => this.player.y,    v => { this.player.y = v; });
+    this.addrHP   = memory.bindGameValue("player.hp",   () => this.player.hp,   v => { this.player.hp = v; });
     this.addrAmmo = memory.bindGameValue("player.ammo", () => this.player.ammo, v => { this.player.ammo = v; });
 
     this._wireInput();
@@ -53,17 +80,27 @@ export class AssaultZone {
     window.addEventListener("resize", () => this._fitCanvas());
   }
 
-  _fitCanvas() {
-    const wrap = this.canvas.parentElement;
-    const w = wrap.clientWidth;
-    const h = wrap.clientHeight - 60; // leave room for tabs (handled by parent grid actually)
-    // Keep map aspect ratio, fit width.
-    const scale = Math.max(1, Math.floor(w / (MAP_W * TILE)));
-    this.canvas.width  = MAP_W * TILE * scale;
-    this.canvas.height = MAP_H * TILE * scale;
-    this.scale = scale;
-    this._draw();
+  // ---- Mission control surface ----
+
+  reset() {
+    this.player.x = SPAWN.x;
+    this.player.y = SPAWN.y;
+    this.player.hp = 100;
+    this.player.ammo = 30;
+    this.hazardsActive = false;
+    this.lastDamageAt = 0;
+    this.damageEvents = 0;
+    this.deaths = 0;
+    // Unfreeze any cells from a previous run.
+    for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo]) {
+      memory.setFrozen(a, false);
+    }
   }
+
+  enableHazards()  { this.hazardsActive = true; }
+  disableHazards() { this.hazardsActive = false; }
+
+  // ---- Input ----
 
   _wireInput() {
     const setDir = (dir, on) => { this.input[dir] = on; };
@@ -92,6 +129,16 @@ export class AssaultZone {
     });
   }
 
+  _fitCanvas() {
+    const wrap = this.canvas.parentElement;
+    const w = wrap ? wrap.clientWidth : 360;
+    const scale = Math.max(1, Math.floor(w / (MAP_W * TILE)));
+    this.canvas.width  = MAP_W * TILE * scale;
+    this.canvas.height = MAP_H * TILE * scale;
+    this.scale = scale;
+    this._draw();
+  }
+
   _tryMove(dx, dy) {
     const nx = this.player.x + dx;
     const ny = this.player.y + dy;
@@ -99,6 +146,10 @@ export class AssaultZone {
     if (this.map[ny][nx] === 1) return;
     this.player.x = nx;
     this.player.y = ny;
+  }
+
+  _onHazardTile() {
+    return this.hazards.some(h => h.x === this.player.x && h.y === this.player.y);
   }
 
   update(now) {
@@ -114,11 +165,26 @@ export class AssaultZone {
       }
     }
 
+    // Hazards apply damage on a slow tick if the player is standing on one.
+    if (this.hazardsActive && now - this.lastHazardTickAt > HAZARD_TICK_MS) {
+      this.lastHazardTickAt = now;
+      if (this._onHazardTile()) {
+        this.player.hp -= HAZARD_DAMAGE;
+        this.lastDamageAt = now;
+        this.damageEvents++;
+        if (this.player.hp <= 0) {
+          this.deaths++;
+          this.player.hp = 100;
+          this.player.x = SPAWN.x;
+          this.player.y = SPAWN.y;
+        }
+      }
+    }
+
     // Sync game <-> memory (also applies any frozen writes).
     memory.tick();
 
-    // HUD reads from the real game state (not memory) so the player can
-    // see when a freeze is forcing memory to lie vs. observe.
+    // HUD reflects current game state.
     document.getElementById("hud-x").textContent  = this.player.x;
     document.getElementById("hud-y").textContent  = this.player.y;
     document.getElementById("hud-hp").textContent = this.player.hp;
@@ -146,7 +212,23 @@ export class AssaultZone {
       }
     }
 
-    // Player
+    if (this.hazardsActive) {
+      for (const h of this.hazards) {
+        const hx = h.x * T;
+        const hy = h.y * T;
+        ctx.fillStyle = "#3a0e10";
+        ctx.fillRect(hx, hy, T, T);
+        ctx.strokeStyle = "#f87171";
+        ctx.beginPath();
+        // X mark
+        ctx.moveTo(hx + 3, hy + 3);
+        ctx.lineTo(hx + T - 3, hy + T - 3);
+        ctx.moveTo(hx + T - 3, hy + 3);
+        ctx.lineTo(hx + 3, hy + T - 3);
+        ctx.stroke();
+      }
+    }
+
     const px = this.player.x * T;
     const py = this.player.y * T;
     ctx.fillStyle = "#4ade80";
@@ -156,6 +238,8 @@ export class AssaultZone {
   }
 
   start() {
+    if (this._loopStarted) return;
+    this._loopStarted = true;
     const loop = (t) => {
       this.update(t);
       this._draw();

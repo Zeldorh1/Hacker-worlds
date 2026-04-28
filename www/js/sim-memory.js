@@ -138,9 +138,11 @@ class SimMemory {
 
   /**
    * Filter a previous scan result against current memory.
-   *   mode = "exact"     -> still equals value
-   *   mode = "changed"   -> value differs from prev.value
-   *   mode = "unchanged" -> value still equals prev.value
+   *   mode = "exact"      -> still equals value
+   *   mode = "changed"    -> value differs from prev.value
+   *   mode = "unchanged"  -> value still equals prev.value
+   *   mode = "increased"  -> value is strictly greater than prev.value
+   *   mode = "decreased"  -> value is strictly less than prev.value
    */
   filter(prev, mode, value) {
     const out = [];
@@ -149,9 +151,11 @@ class SimMemory {
       const cell = this.cells.get(r.addr);
       if (!cell) continue;
       const cur = cell.value;
-      if (mode === "exact"     && cur === v)         out.push({ addr: r.addr, value: cur });
-      if (mode === "changed"   && cur !== r.value)   out.push({ addr: r.addr, value: cur });
-      if (mode === "unchanged" && cur === r.value)   out.push({ addr: r.addr, value: cur });
+      if (mode === "exact"      && cur === v)         out.push({ addr: r.addr, value: cur });
+      if (mode === "changed"    && cur !== r.value)   out.push({ addr: r.addr, value: cur });
+      if (mode === "unchanged"  && cur === r.value)   out.push({ addr: r.addr, value: cur });
+      if (mode === "increased"  && cur > r.value)     out.push({ addr: r.addr, value: cur });
+      if (mode === "decreased"  && cur < r.value)     out.push({ addr: r.addr, value: cur });
     }
     return out;
   }
