@@ -1,16 +1,28 @@
 // Minimal offline cache so the app works on a phone with no signal.
-const CACHE = "hw-v1";
+const CACHE = "hw-v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
   "./styles/main.css",
   "./js/app.js",
+  "./js/anticheat.js",
+  "./js/audio.js",
+  "./js/boot.js",
+  "./js/desktop.js",
   "./js/dialog.js",
+  "./js/matrix-rain.js",
+  "./js/mission-state.js",
+  "./js/music.js",
   "./js/scanner.js",
   "./js/sim-memory.js",
   "./js/target-assaultzone.js",
+  "./js/timer.js",
+  "./js/tutorial.js",
+  "./js/missions/index.js",
   "./js/missions/mission-01.js",
+  "./js/missions/mission-02.js",
+  "./js/missions/mission-03.js",
   "./icons/icon-192.svg",
   "./icons/icon-512.svg",
 ];

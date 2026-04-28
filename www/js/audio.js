@@ -1,10 +1,14 @@
-// Synthesized UI sounds via Web Audio. No asset files; tones are generated
-// on demand. Browsers won't let audio play before a user gesture, so the
-// AudioContext is created lazily on first call and a gesture-safe wrapper
-// resumes it when needed.
+// Synthesized UI sounds + procedural ambient music via Web Audio. No
+// asset files; tones are generated on demand. Browsers won't let audio
+// play before a user gesture, so the AudioContext is created lazily on
+// first call and a gesture-safe wrapper resumes it (and starts the
+// music) when needed.
 //
 // Public API: audio.tap(), .scan(), .lock(), .damage(), .type(), .boot(),
-// .complete(). audio.toggleMute() flips persisted mute state.
+// .complete(), .heartbeat(), .urgent(), .fail(). The mute toggle silences
+// SFX and music via the master gain.
+
+import { Music } from "./music.js";
 
 const KEY = "hw.audio.muted";
 
@@ -12,6 +16,8 @@ class AudioBank {
   constructor() {
     this.ctx = null;
     this.master = null;
+    this.sfxGain = null;
+    this.music = null;
     this.muted = (localStorage.getItem(KEY) === "1");
     this._unlocked = false;
     this._installUnlock();
@@ -23,6 +29,7 @@ class AudioBank {
       this._unlocked = true;
       this._ensureCtx();
       if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+      this._startMusic();
     };
     window.addEventListener("touchstart", unlock, { passive: true });
     window.addEventListener("mousedown",  unlock);
@@ -35,16 +42,33 @@ class AudioBank {
     if (!C) return null;
     try {
       this.ctx = new C();
+      // Master gain controls the overall mute. SFX go through their own
+      // bus so they aren't ducked by the music's slower envelope.
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.18;
+      this.master.gain.value = this.muted ? 0 : 1;
       this.master.connect(this.ctx.destination);
+
+      this.sfxGain = this.ctx.createGain();
+      this.sfxGain.gain.value = 0.18;
+      this.sfxGain.connect(this.master);
     } catch { this.ctx = null; }
     return this.ctx;
+  }
+
+  _startMusic() {
+    if (!this.ctx || this.music) return;
+    this.music = new Music(this.ctx, this.master);
+    this.music.start();
   }
 
   setMuted(v) {
     this.muted = !!v;
     try { localStorage.setItem(KEY, this.muted ? "1" : "0"); } catch {}
+    if (this.master && this.ctx) {
+      const t = this.ctx.currentTime;
+      this.master.gain.cancelScheduledValues(t);
+      this.master.gain.linearRampToValueAtTime(this.muted ? 0 : 1, t + 0.15);
+    }
   }
   toggleMute() { this.setMuted(!this.muted); return this.muted; }
   isMuted() { return this.muted; }
@@ -65,7 +89,7 @@ class AudioBank {
     g.gain.linearRampToValueAtTime(volume, t + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
     osc.connect(g);
-    g.connect(this.master);
+    g.connect(this.sfxGain || this.master);
     osc.start(t);
     osc.stop(t + duration + 0.02);
   }
