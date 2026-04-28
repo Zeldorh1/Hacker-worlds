@@ -2,6 +2,7 @@
 // stats that get bound to SimMemory addresses so the Scanner can find them.
 
 import { memory } from "./sim-memory.js";
+import { EnemyManager } from "./enemies.js";
 
 const TILE = 16;
 const MAP_W = 22;
@@ -81,6 +82,13 @@ export class AssaultZone {
     this.addrHP   = memory.bindGameValue("player.hp",   () => this.player.hp,   v => { this.player.hp = v; });
     this.addrAmmo = memory.bindGameValue("player.ammo", () => this.player.ammo, v => { this.player.ammo = v; });
 
+    // Enemy entity array — patrol NPCs that future missions teach you to
+    // find via the entity-array layout in memory.
+    this.enemyManager = new EnemyManager({ mapW: MAP_W, mapH: MAP_H });
+    this.enemiesActive = false;   // missions opt them in
+    this.radarActive = false;
+    this.espActive = false;
+
     this._wireInput();
     this._fitCanvas();
     window.addEventListener("resize", () => this._fitCanvas());
@@ -95,13 +103,23 @@ export class AssaultZone {
     this.player.ammo = 30;
     this.hazardsActive = false;
     this.bleedActive = false;
+    this.enemiesActive = false;
+    // Note: radarActive / espActive intentionally persist across missions
+    // — once a player has earned the unlock, the HUD stays available.
     this.lastDamageAt = 0;
     this.damageEvents = 0;
     this.deaths = 0;
     this.lastBleedAt = 0;
+    this.enemyManager.reset();
     // Unfreeze any cells from a previous run.
     for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo]) {
       memory.setFrozen(a, false);
+    }
+    // Also clear freezes on the enemy struct array.
+    for (let i = 0; i < this.enemyManager.enemies.length; i++) {
+      memory.setFrozen(this.enemyManager.baseAddressOf(i, EnemyManager.F_X),  false);
+      memory.setFrozen(this.enemyManager.baseAddressOf(i, EnemyManager.F_Y),  false);
+      memory.setFrozen(this.enemyManager.baseAddressOf(i, EnemyManager.F_HP), false);
     }
   }
 
@@ -114,6 +132,12 @@ export class AssaultZone {
     this.lastBleedAt = performance.now();
   }
   disableBleed() { this.bleedActive = false; }
+  enableEnemies() { this.enemiesActive = true; }
+  disableEnemies() { this.enemiesActive = false; }
+  enableRadar()   { this.radarActive = true; }
+  disableRadar()  { this.radarActive = false; }
+  enableESP()     { this.espActive = true; }
+  disableESP()    { this.espActive = false; }
 
   // ---- Input ----
 
@@ -198,6 +222,11 @@ export class AssaultZone {
           this.player.hp = 100;
         }
       }
+    }
+
+    // Step enemies on their patrol routes.
+    if (this.enemiesActive) {
+      this.enemyManager.step(now);
     }
 
     // Hazards apply damage on a slow tick if the player is standing on one.
@@ -326,12 +355,88 @@ export class AssaultZone {
       }
     }
 
+    // Enemies — drawn under the player so the player sprite stays on top.
+    if (this.enemiesActive) {
+      for (const e of this.enemyManager.enemies) {
+        if (!e.alive) continue;
+        const ex = e.x * T;
+        const ey = e.y * T;
+        ctx.fillStyle = "#7f1d1d";
+        ctx.fillRect(ex + 2, ey + 2, T - 4, T - 4);
+        ctx.strokeStyle = "#f87171";
+        ctx.strokeRect(ex + 2.5, ey + 2.5, T - 5, T - 5);
+
+        // ESP overlay — name + HP label above each enemy.
+        if (this.espActive) {
+          const label = `${e.name}  ${e.hp}`;
+          ctx.font = `${10 * s}px ui-monospace, Menlo, monospace`;
+          ctx.textBaseline = "alphabetic";
+          ctx.fillStyle = "rgba(0,0,0,0.6)";
+          const w = ctx.measureText(label).width;
+          ctx.fillRect(ex - 2, ey - 12 * s, w + 6, 12 * s);
+          ctx.fillStyle = "#22d3ee";
+          ctx.fillText(label, ex + 1, ey - 3 * s);
+
+          // HP bar under the name.
+          const hpFrac = Math.max(0, Math.min(1, e.hp / 100));
+          ctx.fillStyle = "#1f2a33";
+          ctx.fillRect(ex, ey + T, T, 2 * s);
+          ctx.fillStyle = hpFrac > 0.5 ? "#4ade80" : hpFrac > 0.25 ? "#fbbf24" : "#f87171";
+          ctx.fillRect(ex, ey + T, T * hpFrac, 2 * s);
+        }
+      }
+    }
+
     const px = this.player.x * T;
     const py = this.player.y * T;
     ctx.fillStyle = "#4ade80";
     ctx.fillRect(px + 2, py + 2, T - 4, T - 4);
     ctx.fillStyle = "#022c12";
     ctx.fillRect(px + T / 2 - s, py + 2, 2 * s, T / 2);
+
+    // Radar minimap — drawn in the bottom-right of the canvas as a small
+    // overlay. Shows player + every alive enemy as a single-pixel dot.
+    if (this.radarActive) {
+      this._drawRadar(ctx, s);
+    }
+  }
+
+  _drawRadar(ctx, s) {
+    const padding = 6 * s;
+    const size = Math.min(MAP_W, MAP_H) * 3 * s;
+    const x0 = this.canvas.width - size - padding;
+    const y0 = this.canvas.height - size - padding;
+    ctx.fillStyle = "rgba(2, 6, 12, 0.85)";
+    ctx.fillRect(x0, y0, size, size);
+    ctx.strokeStyle = "#22d3ee";
+    ctx.strokeRect(x0 + 0.5, y0 + 0.5, size - 1, size - 1);
+
+    const sx = size / MAP_W;
+    const sy = size / MAP_H;
+    // Walls (faint).
+    ctx.fillStyle = "rgba(58, 47, 29, 0.5)";
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        if (this.map[y][x] === 1) ctx.fillRect(x0 + x * sx, y0 + y * sy, sx, sy);
+      }
+    }
+    // Enemies (red).
+    if (this.enemiesActive) {
+      ctx.fillStyle = "#f87171";
+      for (const e of this.enemyManager.enemies) {
+        if (!e.alive) continue;
+        ctx.fillRect(x0 + e.x * sx - 1, y0 + e.y * sy - 1, Math.max(2, sx + 1), Math.max(2, sy + 1));
+      }
+    }
+    // Player (green).
+    ctx.fillStyle = "#4ade80";
+    ctx.fillRect(x0 + this.player.x * sx - 1, y0 + this.player.y * sy - 1, Math.max(2, sx + 1), Math.max(2, sy + 1));
+
+    // Label
+    ctx.font = `${9 * s}px ui-monospace, Menlo, monospace`;
+    ctx.fillStyle = "#22d3ee";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText("RADAR", x0 + 3, y0 - 2);
   }
 
   start() {

@@ -67,6 +67,27 @@ class SimMemory {
    */
   bindGameValue(label, getter, setter, type = "int32") {
     const addr = randomAddress();
+    this._bindAt(addr, label, getter, setter, type);
+    return addr;
+  }
+
+  /**
+   * Bind a labeled value at a specific address — used to lay out
+   * struct arrays at consecutive offsets so missions can teach the
+   * "iterate the entity array" pattern.
+   */
+  bindGameValueAt(addr, label, getter, setter, type = "int32") {
+    this._bindAt(addr, label, getter, setter, type);
+    return addr;
+  }
+
+  _bindAt(addr, label, getter, setter, type) {
+    // If a noise cell already holds this address, evict it from the
+    // noise drift pool so it doesn't randomize over our bound value.
+    if (this._noiseAddrs) {
+      const i = this._noiseAddrs.indexOf(addr);
+      if (i >= 0) this._noiseAddrs.splice(i, 1);
+    }
     this.cells.set(addr, {
       value: getter() | 0,
       type,
@@ -75,7 +96,28 @@ class SimMemory {
       setter,
     });
     this.labelIndex.set(label, addr);
-    return addr;
+  }
+
+  /** Pick a fresh, unused base address that won't collide with existing cells.
+   *  Uses 11 hex digits (44 bits) for the base so adding stride*count
+   *  doesn't risk overflowing JS Number's 53-bit safe range. */
+  reserveBlock(stride, count) {
+    for (let attempt = 0; attempt < 32; attempt++) {
+      const base = parseInt(randHex(11), 16);
+      let ok = true;
+      for (let i = 0; i < count; i++) {
+        const a = SimMemory.formatAddr(base + i * stride);
+        if (this.cells.has(a)) { ok = false; break; }
+      }
+      if (ok) return base;
+    }
+    // Extremely unlikely; fall back to a far-out base.
+    return 0x100000000000 + ((Math.random() * 0x1000) | 0) * stride * count;
+  }
+
+  /** Format a numeric address back into the canonical "0x..." form. */
+  static formatAddr(n) {
+    return "0x" + n.toString(16).padStart(12, "0").toUpperCase();
   }
 
   addressOfLabel(label) { return this.labelIndex.get(label); }
@@ -162,3 +204,4 @@ class SimMemory {
 }
 
 export const memory = new SimMemory();
+export { SimMemory };
