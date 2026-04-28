@@ -19,6 +19,7 @@
 
     <main id="view-root" class="view-root">
       <section id="view-hub" class="view view--active">
+        <canvas id="matrix-rain" class="matrix-rain" aria-hidden="true"></canvas>
         <div class="hub">
           <div class="hub-header">
             <div class="hub-brand">ANOMALY LABS</div>
@@ -27,6 +28,7 @@
           <div class="hub-progress" id="hub-progress">PROGRESS: 0/0</div>
           <ul id="contract-list" class="contract-list"></ul>
           <div class="hub-footer">
+            <button id="btn-mute" class="ghost small" aria-label="toggle sound">audio: on</button>
             <button id="btn-reset-progress" class="ghost small">reset progress</button>
           </div>
         </div>
@@ -90,6 +92,13 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
+
+  <div id="boot-overlay" class="boot-overlay">
+    <div id="boot-log" class="boot-log"></div>
+    <div class="boot-hint">tap to skip</div>
+  </div>
+
+  <div id="crt" class="crt" aria-hidden="true"></div>
 
   <script type="module" src="./js/app.js"></script>
 </body>

@@ -53,8 +53,9 @@ class Player {
 }
 
 export class AssaultZone {
-  constructor(canvas) {
+  constructor(canvas, { audio } = {}) {
     this.canvas = canvas;
+    this.audio = audio || null;
     this.ctx = canvas.getContext("2d");
     this.map = buildMap();
     this.hazards = buildHazards(this.map);
@@ -178,8 +179,10 @@ export class AssaultZone {
         // but we still count the event because the hazard fired.
         if (hpFrozen) {
           this._flashBlock();
+          if (this.audio) this.audio.lock();
         } else {
           this._flashHit();
+          if (this.audio) this.audio.damage();
         }
         if (!hpFrozen && this.player.hp <= 0) {
           this.deaths++;

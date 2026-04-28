@@ -4,9 +4,10 @@ import { MISSIONS } from "./missions/index.js";
 import { missionState } from "./mission-state.js";
 
 export class Desktop {
-  constructor(root, { onLaunch }) {
+  constructor(root, { onLaunch, audio }) {
     this.root = root;
     this.onLaunch = onLaunch;
+    this.audio = audio || null;
     this.$list     = root.querySelector("#contract-list");
     this.$progress = root.querySelector("#hub-progress");
     this.$reset    = root.querySelector("#btn-reset-progress");
@@ -52,7 +53,10 @@ export class Desktop {
       const id = el.dataset.id;
       const status = el.dataset.status;
       if (status === "locked") return;
-      el.addEventListener("click", () => this.onLaunch(id));
+      el.addEventListener("click", () => {
+        if (this.audio) this.audio.tap();
+        this.onLaunch(id);
+      });
     });
   }
 }

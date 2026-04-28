@@ -444,6 +444,18 @@ button:disabled { opacity: 0.4; cursor: default; }
   display: flex;
   flex-direction: column;
   gap: 14px;
+  position: relative;
+  z-index: 2;
+}
+.matrix-rain {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.55;
+  mix-blend-mode: screen;
 }
 .hub-header {
   border-bottom: 1px dashed var(--line);
@@ -527,7 +539,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .hub-footer {
   border-top: 1px dashed var(--line);
   padding-top: 8px;
-  text-align: right;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
 }
 button.small { padding: 4px 8px; font-size: 11px; }
 
@@ -550,4 +564,78 @@ button.small { padding: 4px 8px; font-size: 11px; }
 @keyframes toast-in {
   from { transform: translate(-50%, 8px); opacity: 0; }
   to   { transform: translate(-50%, 0);    opacity: 1; }
+}
+
+/* ---------- Boot overlay ---------- */
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #02050a;
+  color: var(--accent);
+  padding: 28px 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  transition: opacity 280ms ease-out;
+}
+.boot-overlay.hidden { opacity: 0; pointer-events: none; }
+.boot-log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.boot-line { color: var(--accent); }
+.boot-line.accent { color: var(--accent-2); font-weight: 700; }
+.boot-hint {
+  margin-top: auto;
+  text-align: center;
+  color: var(--fg-dim);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+/* ---------- CRT scanlines + phosphor flicker ---------- */
+/*
+ * Two stacked pseudo-layers: thin horizontal scanlines, plus a faint
+ * green phosphor wash that pulses every few seconds. Both pointer-events:
+ * none and z-indexed above content but below interactive dialogs.
+ */
+.crt {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 200;
+  mix-blend-mode: overlay;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.02) 0px,
+      rgba(255, 255, 255, 0.02) 1px,
+      rgba(0, 0, 0, 0.16)        2px,
+      rgba(0, 0, 0, 0.16)        3px
+    );
+  animation: crt-flicker 4.2s steps(60, jump-none) infinite;
+}
+.crt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(74, 222, 128, 0.04) 0%,
+    rgba(0, 0, 0, 0.18) 100%
+  );
+}
+@keyframes crt-flicker {
+  0%, 100% { opacity: 0.92; }
+  47%      { opacity: 0.95; }
+  50%      { opacity: 0.78; }
+  53%      { opacity: 0.95; }
+  73%      { opacity: 0.90; }
 }

@@ -5,10 +5,11 @@ import { memory } from "./sim-memory.js";
 const MAX_RESULT_ROWS = 200;
 
 export class Scanner {
-  constructor(root) {
+  constructor(root, { audio } = {}) {
     this.root = root;
-    this.lastResults = null; // null = no scan yet, [] = scanned but empty
-    this.watch = new Map();  // addr -> {value}
+    this.audio = audio || null;
+    this.lastResults = null;
+    this.watch = new Map();
 
     this.$value   = root.querySelector("#scan-value");
     this.$first   = root.querySelector("#btn-first-scan");
@@ -56,6 +57,7 @@ export class Scanner {
     this._renderResults();
     this.$next.disabled = this.lastResults.length === 0;
     this.$status.textContent = `${this.lastResults.length} match(es) for ${v}.`;
+    if (this.audio) this.audio.scan();
     this._emit("scan");
   }
 
@@ -68,6 +70,7 @@ export class Scanner {
     this._renderResults();
     this.$next.disabled = this.lastResults.length === 0;
     this.$status.textContent = `${this.lastResults.length} match(es) after filter (${mode}).`;
+    if (this.audio) this.audio.scan();
     this._emit("scan");
   }
 
@@ -98,6 +101,7 @@ export class Scanner {
     if (this.watch.has(addr)) return;
     this.watch.set(addr, { value: memory.read(addr) });
     this._renderWatchlist();
+    if (this.audio) this.audio.tap();
     this._emit("watch");
   }
 
@@ -135,6 +139,7 @@ export class Scanner {
       });
       li.querySelector(".freeze-cb").addEventListener("change", e => {
         memory.setFrozen(addr, e.target.checked);
+        if (this.audio && e.target.checked) this.audio.lock();
         this._emit("freeze");
       });
       li.querySelector(".remove").addEventListener("click", () => this.removeFromWatchlist(addr));

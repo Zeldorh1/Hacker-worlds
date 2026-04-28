@@ -5,16 +5,17 @@
 const TYPE_MS_PER_CHAR = 24;
 
 export class Dialog {
-  constructor(root) {
+  constructor(root, { audio } = {}) {
     this.root = root;
+    this.audio = audio || null;
     this.$text  = root.querySelector("#dialog-text");
     this.$next  = root.querySelector("#dialog-next");
     this.$speak = root.querySelector(".speaker");
     this.queue = [];
     this.onEmpty = null;
 
-    this._typingFull = "";   // full text of the current line
-    this._typingIdx = 0;     // chars revealed
+    this._typingFull = "";
+    this._typingIdx = 0;
     this._typingTimer = null;
     this._isTyping = false;
 
@@ -80,6 +81,8 @@ export class Dialog {
       if (!this._isTyping) return;
       this._typingIdx++;
       this.$text.textContent = this._typingFull.slice(0, this._typingIdx);
+      // Soft typewriter blip every other char.
+      if (this.audio && (this._typingIdx & 1)) this.audio.type();
       if (this._typingIdx >= this._typingFull.length) {
         this._completeTyping();
       } else {
