@@ -18,22 +18,22 @@ export const mission05 = {
   hints: [
     {
       id: "scan-100",
-      min: 12,
+      min: 10,
       when: ({ scannerState }) => scannerState.lastResults === null,
-      say: "Every enemy spawns at HP=100. Type 100 in the Scanner and tap First Scan.",
+      say: "Every enemy spawns at HP=100 — and a coordinated assault is dropping their HP every tick. Type 100 in the Scanner, tap First Scan. (You won't SEE HP yet — that's what ESP unlocks.)",
     },
     {
       id: "decreased-after-drain",
       min: 5,
       when: ({ scannerState }) =>
         scannerState.lastResults && scannerState.lastResults.length > 2,
-      say: "Hostiles are taking fire — HP drains slowly. Switch the filter to 'decreased' and tap Next Scan. Repeat once or twice.",
+      say: "Wait 2 seconds for the drain to land, then switch the filter radio to 'decreased' and tap Next Scan. Repeat 2-3 times — only the actual HP cells will keep dropping every round.",
     },
     {
       id: "watch-hp",
       when: ({ scannerState, watchSize }) =>
-        scannerState.lastResults && scannerState.lastResults.length <= 2 && watchSize === 0,
-      say: "'+ watch' the surviving HP cell. ESP labels and HP bars pop on every contact.",
+        scannerState.lastResults && scannerState.lastResults.length <= 4 && watchSize === 0,
+      say: "Tap '+ watch' on a few survivors. The moment one is a real enemy.hp, ESP lights up — names and HP bars on every contact.",
     },
   ],
 
@@ -44,31 +44,31 @@ export const mission05 = {
 
     dialog.script("VEX", [
       "Hostile structs are laid out as an array. You found enemy.x last time — enemy.hp is just twelve bytes further along the same struct.",
-      "Two paths in: scan for HP=100 (every enemy spawns at full health), or scan small ints, then drain a target by walking near them and re-narrow with 'decreased' as their HP ticks.",
-      "Either way: enemy.hp into the watchlist lights up ESP — name + HP bar over every contact.",
-      "Once you can read it, you can write it. Freeze HP to zero on a watched cell? You just dropped that contact.",
+      "Heads up: every contact is taking fire and bleeds 3 HP every ~0.8s. You won't SEE it on screen — ESP isn't up yet — but the cells are dropping. That's the lever.",
+      "First Scan 100. Wait two beats. Switch the filter to 'decreased' and Next Scan. Two-three rounds of that gets you to the HP cells.",
+      "Watch one — the moment it's a real enemy.hp, ESP pops on every patrol: names, HP bars, the lot.",
     ]);
 
     let done = false;
     const enemyHpAddrs = target.enemyManager.enemies.map((_, i) =>
       memory.addressOfLabel(`enemy[${i}].hp`)
     );
+    const enemyHpLabels = target.enemyManager.enemies.map((_, i) => `enemy[${i}].hp`);
 
-    // Drain all enemies HP slightly over time so 'decreased' narrowing
-    // is a viable path even though enemies aren't actively combat.
+    // Visibly drain enemy HP so 'decreased' narrowing has clear deltas
+    // every couple of seconds. 3 HP per ~0.8s lands a contact at 0 in
+    // about 27 seconds, well within the 100s trace window.
     let lastDrain = performance.now();
     const drainTick = setInterval(() => {
+      if (target.paused) return;
       const now = performance.now();
-      if (now - lastDrain < 1100) return;
+      if (now - lastDrain < 800) return;
       lastDrain = now;
-      // Each enemy loses 1 HP every ~1.1s (cosmetic — narrative is
-      // "they're under fire from a coordinated assault"). Frozen cells
-      // ignore this naturally because of the bound setter.
-      for (const e of target.enemyManager.enemies) {
-        if (e.hp > 1 && !memory.isFrozen(memory.addressOfLabel(`enemy[${target.enemyManager.enemies.indexOf(e)}].hp`))) {
-          e.hp = Math.max(1, e.hp - 1);
+      target.enemyManager.enemies.forEach((e, i) => {
+        if (!memory.isFrozen(enemyHpAddrs[i]) && e.hp > 1) {
+          e.hp = Math.max(1, e.hp - 3);
         }
-      }
+      });
     }, 200);
 
     const interval = setInterval(() => {
