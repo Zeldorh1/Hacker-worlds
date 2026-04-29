@@ -67,7 +67,8 @@ export class Dialog {
     const head = this.queue[0];
     if (!head) return;
     this.$speak.textContent = head.who;
-    this.root.classList.toggle("is-tip", /tip/i.test(head.who));
+    const tipLike = /\b(tip|guide)\b/i.test(head.who);
+    this.root.classList.toggle("is-tip", tipLike);
     this._startTyping(head.text);
   }
 

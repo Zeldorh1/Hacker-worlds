@@ -76,7 +76,7 @@ body[data-mode="hub"] .tabs { display: none; }
   border-radius: 3px;
   white-space: nowrap;
 }
-/* VEX TIP — a hint, visually distinct from mandatory dialog. */
+/* VEX TIP / VEX GUIDE — hints, visually distinct from mandatory dialog. */
 .dialog-bar.is-tip .speaker {
   color: var(--warn);
   border-color: var(--warn);
@@ -85,6 +85,21 @@ body[data-mode="hub"] .tabs { display: none; }
   color: var(--warn);
   font-style: italic;
 }
+
+/* ---------- Guided first-run banner ---------- */
+.guided-banner {
+  display: none;
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.08), rgba(251, 191, 36, 0.02));
+  color: var(--warn);
+  border-bottom: 1px solid rgba(251, 191, 36, 0.45);
+  padding: 4px 12px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+body.guided[data-mode="mission"] .guided-banner { display: block; }
 .dialog-text {
   color: var(--fg);
   line-height: 1.35;

@@ -229,6 +229,7 @@ async function boot() {
     hideTraceBar();
     hideDetectionBar();
     hideViolationBar();
+    document.body.classList.remove("guided");
   }
 
   function endMission() {
@@ -320,12 +321,18 @@ async function boot() {
     }
 
     if (Array.isArray(m.hints) && m.hints.length) {
+      const guided = !missionState.isComplete(id);
       activeHints = new HintEngine({
         rules: m.hints,
         dialog,
         ctxFactory: (elapsed) => buildHintCtx(elapsed),
+        guided,
       });
       activeHints.start();
+      // Visual badge so the player knows they're in a guided first-run.
+      document.body.classList.toggle("guided", guided);
+    } else {
+      document.body.classList.remove("guided");
     }
 
     activeTeardown = m.start({
