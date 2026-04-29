@@ -385,6 +385,25 @@ async function boot() {
     tutorial.show();
   });
 
+  // Last-resort recovery if a stale service worker cache pinned an old
+  // build: nuke every Cache Storage entry, unregister the SW, reload.
+  document.getElementById("btn-force-update").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    audio.tap();
+    showToast("clearing caches · reloading", 1800);
+    try {
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch {}
+    setTimeout(() => location.reload(), 600);
+  });
+
   document.getElementById("btn-fire").addEventListener("click", (e) => {
     e.stopPropagation();
     target.fire();

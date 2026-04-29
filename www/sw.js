@@ -1,5 +1,10 @@
 // Minimal offline cache so the app works on a phone with no signal.
-const CACHE = "hw-v7";
+//
+// IMPORTANT: install fetches use { cache: "reload" } so the SW pre-cache
+// doesn't get poisoned by stale browser HTTP-cache entries during the
+// initial pre-fetch. Without this, a user upgrading from an older SW
+// can end up with the new SW cache name but the OLD bytes inside it.
+const CACHE = "hw-v8";
 const ASSETS = [
   "./",
   "./index.html",
@@ -34,17 +39,36 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    // Force a fresh network fetch for every asset — bypasses the
+    // browser HTTP cache so we don't pre-load stale copies.
+    await Promise.all(ASSETS.map(async (url) => {
+      try {
+        const res = await fetch(url, { cache: "reload" });
+        if (res && (res.ok || res.type === "opaque")) await cache.put(url, res);
+      } catch {}
+    }));
+    self.skipWaiting();
+  })());
 });
+
 self.addEventListener("message", e => {
-  if (e.data && e.data.type === "skip-waiting") self.skipWaiting();
+  if (!e.data) return;
+  if (e.data.type === "skip-waiting") self.skipWaiting();
+  if (e.data.type === "purge") {
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+      .then(() => e.source && e.source.postMessage({ type: "purged" }));
+  }
 });
+
 self.addEventListener("activate", e => {
   e.waitUntil(
     caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
+
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
   e.respondWith(
