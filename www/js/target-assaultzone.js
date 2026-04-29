@@ -89,6 +89,37 @@ export class AssaultZone {
     this.radarActive = false;
     this.espActive = false;
 
+    // Watchdog (M6) — a fake "anti-tamper" thread the target runs.
+    // Bound to a memory cell that increments every 1.5s. While the cell
+    // increments, an integrity check runs against the player's stat
+    // cells; if any are frozen, violations climb. Freeze the watchdog
+    // tick cell to halt the detection routine and stay safe.
+    this.watchdog = {
+      enabled: false,
+      tickValue: 0,
+      lastTickAt: 0,
+      lastSeenTick: 0,
+      violations: 0,
+    };
+    this.addrWatchdog = memory.bindGameValue("watchdog.tick",
+      () => this.watchdog.tickValue,
+      v => { this.watchdog.tickValue = v; });
+
+    // Weapon (M7) — a fire button that damages whichever enemy is
+    // currently in the crosshair (auto-targets the closest one).
+    // crosshairTargetId is bound to memory so missions can teach
+    // freezing it to lock onto a specific enemy.
+    this.weapon = {
+      enabled: false,
+      lastFireAt: 0,
+      cooldownMs: 320,
+    };
+    this.crosshairTargetId = 0;
+    this.aimbotKills = 0;
+    this.addrCrosshair = memory.bindGameValue("crosshair.target",
+      () => this.crosshairTargetId,
+      v => { this.crosshairTargetId = v; });
+
     this._wireInput();
     this._fitCanvas();
     window.addEventListener("resize", () => this._fitCanvas());
@@ -104,6 +135,17 @@ export class AssaultZone {
     this.hazardsActive = false;
     this.bleedActive = false;
     this.enemiesActive = false;
+    this.watchdog.enabled = false;
+    this.watchdog.tickValue = 0;
+    this.watchdog.lastTickAt = 0;
+    this.watchdog.lastSeenTick = 0;
+    this.watchdog.violations = 0;
+    this.weapon.enabled = false;
+    this.weapon.lastFireAt = 0;
+    this.crosshairTargetId = 0;
+    this.aimbotKills = 0;
+    document.getElementById("hud-weapon")?.setAttribute("hidden", "");
+    document.getElementById("btn-fire")?.setAttribute("hidden", "");
     // Note: radarActive / espActive intentionally persist across missions
     // — once a player has earned the unlock, the HUD stays available.
     this.lastDamageAt = 0;
@@ -138,6 +180,60 @@ export class AssaultZone {
   disableRadar()  { this.radarActive = false; }
   enableESP()     { this.espActive = true; }
   disableESP()    { this.espActive = false; }
+
+  enableWatchdog() {
+    this.watchdog.enabled = true;
+    this.watchdog.tickValue = 0;
+    this.watchdog.lastTickAt = performance.now();
+    this.watchdog.lastSeenTick = 0;
+    this.watchdog.violations = 0;
+  }
+  disableWatchdog() { this.watchdog.enabled = false; }
+
+  enableWeapon()  {
+    this.weapon.enabled = true;
+    this.aimbotKills = 0;
+    document.getElementById("hud-weapon")?.removeAttribute("hidden");
+    document.getElementById("btn-fire")?.removeAttribute("hidden");
+  }
+  disableWeapon() {
+    this.weapon.enabled = false;
+    document.getElementById("hud-weapon")?.setAttribute("hidden", "");
+    document.getElementById("btn-fire")?.setAttribute("hidden", "");
+  }
+
+  fire(now = performance.now()) {
+    if (!this.weapon.enabled) return false;
+    if (now - this.weapon.lastFireAt < this.weapon.cooldownMs) return false;
+    this.weapon.lastFireAt = now;
+    const e = this.enemyManager.enemies.find(e => e.id === this.crosshairTargetId && e.alive);
+    if (!e) return false;
+    const aimbotting = memory.isFrozen(this.addrCrosshair);
+    e.hp = Math.max(0, e.hp - 25);
+    if (this.audio) this.audio.scan();   // a quick bleep for muzzle
+    if (e.hp <= 0) {
+      e.alive = 0;
+      if (aimbotting) this.aimbotKills++;
+    }
+    return true;
+  }
+
+  /** Auto-update crosshair target — closest alive enemy to the player. */
+  _updateCrosshair() {
+    let bestId = 0;
+    let bestDist = Infinity;
+    for (const e of this.enemyManager.enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - this.player.x;
+      const dy = e.y - this.player.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; bestId = e.id; }
+    }
+    // The setter writes through to crosshairTargetId; if frozen, the
+    // freeze overrides on memory.tick() and the player keeps their
+    // locked target.
+    this.crosshairTargetId = bestId;
+  }
 
   // ---- Input ----
 
@@ -227,6 +323,37 @@ export class AssaultZone {
     // Step enemies on their patrol routes.
     if (this.enemiesActive) {
       this.enemyManager.step(now);
+      this._updateCrosshair();
+    }
+
+    // Watchdog: bumps its tick cell on a 1.5s clock unless that cell is
+    // frozen. When the cell increments, run an integrity check on the
+    // player's stat addresses; any frozen player cell counts as
+    // tampering and adds violations. If violations hit 100 the mission
+    // has been failed by the active failure handler in app.js.
+    if (this.watchdog.enabled) {
+      if (!memory.isFrozen(this.addrWatchdog) &&
+          now - this.watchdog.lastTickAt > 1500) {
+        this.watchdog.lastTickAt = now;
+        this.watchdog.tickValue++;
+      }
+      const cur = this.watchdog.tickValue;
+      if (cur > this.watchdog.lastSeenTick) {
+        this.watchdog.lastSeenTick = cur;
+        const tampered =
+          memory.isFrozen(this.addrX) ||
+          memory.isFrozen(this.addrY) ||
+          memory.isFrozen(this.addrHP) ||
+          memory.isFrozen(this.addrAmmo);
+        if (tampered) {
+          this.watchdog.violations = Math.min(100, this.watchdog.violations + 25);
+          this._flashHit();
+        } else {
+          // Slow self-heal so a player who froze something briefly,
+          // realised, and unfroze isn't permanently penalised.
+          this.watchdog.violations = Math.max(0, this.watchdog.violations - 10);
+        }
+      }
     }
 
     // Hazards apply damage on a slow tick if the player is standing on one.
@@ -267,6 +394,14 @@ export class AssaultZone {
     const lockedNow = memory.isFrozen(this.addrHP);
     const $lock = document.getElementById("hud-lock");
     if ($lock) $lock.hidden = !lockedNow;
+    if (this.weapon.enabled) {
+      const $tgt = document.getElementById("hud-target");
+      if ($tgt) {
+        const e = this.enemyManager.enemies.find(e => e.id === this.crosshairTargetId);
+        const lock = memory.isFrozen(this.addrCrosshair) ? " ⛒" : "";
+        $tgt.textContent = e ? `${e.name}#${e.id}${lock}` : `none${lock}`;
+      }
+    }
   }
 
   _flashHit() {

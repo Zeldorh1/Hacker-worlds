@@ -33,6 +33,14 @@
       <div class="trace-track"><div id="detection-fill" class="detection-fill"></div></div>
     </div>
 
+    <div id="violation-bar" class="violation-bar" hidden>
+      <div class="trace-label">
+        <span class="trace-tag">VIOLATE</span>
+        <span id="violation-pct" class="trace-time">0%</span>
+      </div>
+      <div class="trace-track"><div id="violation-fill" class="violation-fill"></div></div>
+    </div>
+
     <main id="view-root" class="view-root">
       <section id="view-hub" class="view view--active">
         <canvas id="matrix-rain" class="matrix-rain" aria-hidden="true"></canvas>
@@ -61,7 +69,9 @@
           <div class="hud-map">ac_anomaly · v0.1</div>
           <div class="hud-row"><span class="lbl">POS</span> <span id="hud-x">0</span>,<span id="hud-y">0</span></div>
           <div class="hud-row"><span class="lbl">HP</span> <span id="hud-hp">100</span><span id="hud-lock" class="lock" hidden>LOCKED</span></div>
+          <div class="hud-row" id="hud-weapon" hidden><span class="lbl">TGT</span> <span id="hud-target">none</span></div>
         </div>
+        <button id="btn-fire" class="fire-btn" hidden>FIRE</button>
         <div id="touch-pad" class="touch-pad">
           <button data-dir="up"    class="pad-btn">&#9650;</button>
           <button data-dir="left"  class="pad-btn">&#9664;</button>

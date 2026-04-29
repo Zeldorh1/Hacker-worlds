@@ -129,6 +129,27 @@ function updateDetectionBar(value) {
   else                  bar.removeAttribute("data-urgency");
 }
 
+function showViolationBar() {
+  const bar = document.getElementById("violation-bar");
+  bar.removeAttribute("hidden");
+  bar.removeAttribute("data-urgency");
+  document.getElementById("violation-fill").style.width = "0%";
+  document.getElementById("violation-pct").textContent = "0%";
+}
+function hideViolationBar() {
+  document.getElementById("violation-bar").setAttribute("hidden", "");
+}
+function updateViolationBar(value) {
+  const bar  = document.getElementById("violation-bar");
+  const fill = document.getElementById("violation-fill");
+  const pct  = document.getElementById("violation-pct");
+  fill.style.width = value.toFixed(1) + "%";
+  pct.textContent = Math.round(value) + "%";
+  if (value >= 80)      bar.setAttribute("data-urgency", "crit");
+  else if (value >= 50) bar.setAttribute("data-urgency", "warn");
+  else                  bar.removeAttribute("data-urgency");
+}
+
 // ---- Heartbeat (last 10s) ----
 
 class Heartbeat {
@@ -169,6 +190,7 @@ async function boot() {
   let activeDetection = null;
   let scannerScanUnsub = null;
   let activeHints = null;
+  let activeWatchdogIv = null;
 
   function activeTabName() {
     const t = document.querySelector(".tab.tab--active");
@@ -197,6 +219,7 @@ async function boot() {
     if (activeTimer)    { activeTimer.stop(); activeTimer = null; }
     if (activeDetection) { activeDetection.stop(); activeDetection = null; }
     if (activeHints)    { activeHints.stop(); activeHints = null; }
+    if (activeWatchdogIv) { clearInterval(activeWatchdogIv); activeWatchdogIv = null; }
     if (scannerScanUnsub) { scannerScanUnsub(); scannerScanUnsub = null; }
     heartbeat.stop();
     target.reset();
@@ -205,6 +228,7 @@ async function boot() {
     dialog.clear();
     hideTraceBar();
     hideDetectionBar();
+    hideViolationBar();
   }
 
   function endMission() {
@@ -279,6 +303,22 @@ async function boot() {
       });
     }
 
+    if (m.watchdog) {
+      showViolationBar();
+      target.enableWatchdog();
+      // Poll the target's watchdog state and mirror it into the bar /
+      // fail the mission when violations top out.
+      activeWatchdogIv = setInterval(() => {
+        const v = target.watchdog.violations;
+        updateViolationBar(v);
+        if (v >= 100) {
+          failMission("memory integrity violation · session terminated");
+          clearInterval(activeWatchdogIv);
+          activeWatchdogIv = null;
+        }
+      }, 200);
+    }
+
     if (Array.isArray(m.hints) && m.hints.length) {
       activeHints = new HintEngine({
         rules: m.hints,
@@ -300,6 +340,7 @@ async function boot() {
         if (activeTimer) { activeTimer.stop(); activeTimer = null; }
         if (activeDetection) { activeDetection.stop(); activeDetection = null; }
         if (activeHints) { activeHints.stop(); activeHints = null; }
+        if (activeWatchdogIv) { clearInterval(activeWatchdogIv); activeWatchdogIv = null; }
         heartbeat.stop();
         setTimeout(() => { if (activeId === id) endMission(); }, 3200);
       },
@@ -335,6 +376,11 @@ async function boot() {
     tutorial.show();
   });
 
+  document.getElementById("btn-fire").addEventListener("click", (e) => {
+    e.stopPropagation();
+    target.fire();
+  });
+
   setMode("hub");
   showHub();
   rain.start();
@@ -344,7 +390,7 @@ async function boot() {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
 
-  window.__hw = { target, scanner, dialog, missionState, launchMission, endMission, audio };
+  window.__hw = { target, scanner, dialog, missionState, launchMission, endMission, audio, memory };
 }
 
 if (document.readyState === "loading") {
