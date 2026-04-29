@@ -9,6 +9,7 @@ import { Timer }       from "./timer.js";
 import { Detection }   from "./anticheat.js";
 import { runBoot }     from "./boot.js";
 import { Tutorial }    from "./tutorial.js";
+import { Library }     from "./library.js";
 import { HintEngine, hintsEnabled, setHintsEnabled } from "./hints.js";
 import { memory }      from "./sim-memory.js";
 import { audio }       from "./audio.js";
@@ -43,10 +44,18 @@ function showHub() {
   document.getElementById("view-hub").classList.add("view--active");
   document.getElementById("view-target").classList.remove("view--active");
   document.getElementById("view-scanner").classList.remove("view--active");
+  document.getElementById("view-library").classList.remove("view--active");
 }
 function showMission(switchTo) {
   document.getElementById("view-hub").classList.remove("view--active");
+  document.getElementById("view-library").classList.remove("view--active");
   switchTo("target");
+}
+function showLibrary() {
+  document.getElementById("view-hub").classList.remove("view--active");
+  document.getElementById("view-target").classList.remove("view--active");
+  document.getElementById("view-scanner").classList.remove("view--active");
+  document.getElementById("view-library").classList.add("view--active");
 }
 
 function setupMuteButton() {
@@ -183,6 +192,7 @@ async function boot() {
 
   const rain = new MatrixRain(document.getElementById("matrix-rain"));
   const heartbeat = new Heartbeat();
+  const library = new Library();
 
   let activeTeardown = null;
   let activeId = null;
@@ -197,19 +207,33 @@ async function boot() {
     return t ? t.dataset.view : null;
   }
   function buildHintCtx(elapsed) {
-    const watchEls = document.querySelectorAll(".watchlist li[data-addr]");
+    const watchAllEls = document.querySelectorAll(".watchlist li[data-key]");
+    const watchDirectEls = document.querySelectorAll(".watchlist li[data-addr]");
     let anyFrozen = false;
-    for (const li of watchEls) {
+    for (const li of watchAllEls) {
       const cb = li.querySelector(".freeze-cb");
       if (cb && cb.checked) { anyFrozen = true; break; }
+    }
+    let hasChain = false;
+    let anyChainFrozen = false;
+    for (const [, e] of (scanner.watch || new Map())) {
+      if (e.type === "chain") {
+        hasChain = true;
+        if (e.frozen) anyChainFrozen = true;
+      }
     }
     return {
       elapsed,
       activeTab: activeTabName(),
       target,
       memory,
-      scannerState: { lastResults: scanner.lastResults },
-      watchSize: watchEls.length,
+      scannerState: {
+        lastResults: scanner.lastResults,
+        lastPointerResults: scanner.lastPointerResults,
+      },
+      watchSize: watchDirectEls.length,
+      hasChain,
+      anyChainFrozen,
       anyFrozen,
     };
   }
@@ -232,6 +256,8 @@ async function boot() {
     document.body.classList.remove("guided");
     const $paused = document.getElementById("paused-overlay");
     if ($paused) $paused.hidden = true;
+    const $restart = document.getElementById("btn-restart");
+    if ($restart) $restart.hidden = true;
   }
 
   function endMission() {
@@ -305,6 +331,10 @@ async function boot() {
         if (kind === "scan-action" && activeDetection) activeDetection.noteScan();
       });
     }
+
+    // Show the RESTART button only for missions that support rebase.
+    const $restart = document.getElementById("btn-restart");
+    if ($restart) $restart.hidden = !m.rebase;
 
     if (m.watchdog) {
       showViolationBar();
@@ -385,6 +415,26 @@ async function boot() {
     tutorial.show();
   });
 
+  document.getElementById("btn-library").addEventListener("click", (e) => {
+    e.stopPropagation();
+    audio.tap();
+    rain.stop();
+    setMode("library");
+    showLibrary();
+    library.renderList();
+  });
+  document.getElementById("btn-library-back").addEventListener("click", (e) => {
+    e.stopPropagation();
+    audio.tap();
+    if (library.isArticleOpen()) {
+      library.backToList();
+    } else {
+      setMode("hub");
+      showHub();
+      rain.start();
+    }
+  });
+
   // Last-resort recovery if a stale service worker cache pinned an old
   // build: nuke every Cache Storage entry, unregister the SW, reload.
   document.getElementById("btn-force-update").addEventListener("click", async (e) => {
@@ -417,6 +467,13 @@ async function boot() {
       if (target.paused) activeTimer.pause(); else activeTimer.resume();
     }
     if (audio) audio.tap();
+  });
+
+  document.getElementById("btn-restart").addEventListener("click", (e) => {
+    e.stopPropagation();
+    audio.tap();
+    target.triggerRebase();
+    showToast("session restarted · entity array relocated", 2200);
   });
 
   setMode("hub");

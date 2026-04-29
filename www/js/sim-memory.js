@@ -63,7 +63,8 @@ class SimMemory {
 
   /**
    * Bind a labeled value to a game-state getter/setter.
-   * Returns the assigned address.
+   * Returns the assigned address. Pass type="ptr" for cells that hold
+   * 44-bit address values (skips int32 truncation in tick/write).
    */
   bindGameValue(label, getter, setter, type = "int32") {
     const addr = randomAddress();
@@ -126,12 +127,16 @@ class SimMemory {
   tick() {
     for (const [, cell] of this.cells) {
       if (!cell.getter) continue;
+      // Pointer-typed cells hold full address-sized numbers (up to ~44
+      // bits in our sim), so we must NOT | 0 them; that would truncate.
+      const truncate = cell.type !== "ptr";
       if (cell.frozen) {
-        // Write the frozen value back into the game.
-        if (cell.setter) cell.setter(cell.frozenValue | 0);
-        cell.value = cell.frozenValue | 0;
+        const fv = truncate ? (cell.frozenValue | 0) : cell.frozenValue;
+        if (cell.setter) cell.setter(fv);
+        cell.value = fv;
       } else {
-        cell.value = cell.getter() | 0;
+        const gv = cell.getter();
+        cell.value = truncate ? (gv | 0) : gv;
       }
     }
     this._driftNoise();
@@ -142,12 +147,67 @@ class SimMemory {
     return cell ? cell.value : undefined;
   }
 
+  /** Convert "0x..." back to a numeric address. */
+  static addressToInt(addr) {
+    if (typeof addr !== "string") return NaN;
+    const s = addr.startsWith("0x") || addr.startsWith("0X") ? addr.slice(2) : addr;
+    return parseInt(s, 16);
+  }
+
+  /** Drop the getter/setter binding for an address — used when an
+   *  entity-array rebase relocates a struct, leaving the old cells as
+   *  ordinary noise that no longer reflects any game state. */
+  unbind(addr) {
+    const cell = this.cells.get(addr);
+    if (!cell) return;
+    delete cell.getter;
+    delete cell.setter;
+    delete cell.label;
+    delete cell.frozen;
+    delete cell.frozenValue;
+    if (this._noiseAddrs && !this._noiseAddrs.includes(addr)) {
+      this._noiseAddrs.push(addr);
+    }
+    // Re-randomize so it looks like trash now, not the value it held.
+    cell.value = this._randomNoiseValue();
+  }
+
+  /**
+   * Find every cell whose `value + offset` equals the numeric form of
+   * targetAddr, for offset in [0, alignment, 2*alignment, ..., maxOffset].
+   * Returns [{ptrAddr, offset, value}], sorted by offset.
+   *
+   * Matches Cheat Engine's "Find pointers" first pass — given a
+   * dynamic address you want to keep tabs on across restarts, you're
+   * looking for any cell whose value, plus a small structure offset,
+   * lands on it.
+   */
+  findPointersTo(targetAddr, maxOffset = 0x80, alignment = 4) {
+    const targetN = SimMemory.addressToInt(targetAddr);
+    if (!Number.isFinite(targetN)) return [];
+    const out = [];
+    for (const [addr, cell] of this.cells) {
+      // DON'T truncate with | 0 — pointer-typed cells hold full 44-bit
+      // address values. The check needs the raw value.
+      const v = cell.value;
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      for (let off = 0; off <= maxOffset; off += alignment) {
+        if (v + off === targetN) {
+          out.push({ ptrAddr: addr, offset: off, value: cell.value });
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
   write(addr, value) {
     const cell = this.cells.get(addr);
     if (!cell) return false;
-    cell.value = value | 0;
-    if (cell.frozen) cell.frozenValue = value | 0;
-    if (cell.setter) cell.setter(value | 0);
+    const v = (cell.type === "ptr") ? value : (value | 0);
+    cell.value = v;
+    if (cell.frozen) cell.frozenValue = v;
+    if (cell.setter) cell.setter(v);
     return true;
   }
 

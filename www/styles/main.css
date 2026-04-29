@@ -764,6 +764,171 @@ body[data-mode="hub"] .violation-bar { display: none; }
 }
 .paused-overlay[hidden] { display: none; }
 
+/* ---------- Restart button (M8 POINTER SCAN) ---------- */
+.restart-btn {
+  position: absolute;
+  top: 8px;
+  right: 50px;
+  background: rgba(192, 132, 252, 0.18);
+  border: 1px solid #c084fc;
+  color: #c084fc;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  z-index: 4;
+  touch-action: manipulation;
+}
+.restart-btn:active { filter: brightness(1.4); }
+.restart-btn[hidden] { display: none; }
+
+/* ---------- Pointer scan section ---------- */
+.ptr-section {
+  border-top: 1px dashed var(--line);
+  margin-top: 6px;
+  padding-top: 6px;
+}
+.ptr-header {
+  font-size: 11px;
+  color: var(--accent-2);
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.ptr-row { gap: 6px; }
+.ptr-row input[type="text"] {
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ptr-results { max-height: 180px; }
+
+/* Watchlist chain entries: subtle different background tint. */
+.watchlist li.chain {
+  border-left: 3px solid #c084fc;
+}
+.watchlist li.chain .addr {
+  color: #c084fc;
+}
+
+/* Manual add row */
+.manual-row { gap: 6px; }
+.manual-row input[type="text"] {
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---------- Library / Codex ---------- */
+.library {
+  padding: 14px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.library-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line);
+}
+.library-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+}
+.library-sub {
+  font-size: 11px;
+  color: var(--fg-dim);
+  letter-spacing: 0.04em;
+}
+.library-list {
+  list-style: none;
+  margin: 0; padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.library-list li {
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  border-radius: 3px;
+  padding: 12px;
+  cursor: pointer;
+}
+.library-list li:active { filter: brightness(1.2); }
+.library-list .title {
+  color: var(--fg);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 14px;
+}
+.library-list .brief {
+  color: var(--fg-dim);
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.library-article {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px 2px 24px;
+  color: var(--fg);
+  line-height: 1.55;
+  font-size: 13px;
+}
+.library-article h2 {
+  color: var(--accent);
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  margin: 14px 0 6px;
+}
+.library-article h3 {
+  color: var(--accent-2);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  margin: 14px 0 4px;
+}
+.library-article p { margin: 6px 0; }
+.library-article ul, .library-article ol { margin: 6px 0 6px 20px; padding: 0; }
+.library-article li { margin: 4px 0; }
+.library-article code {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 12px;
+  color: var(--accent);
+}
+.library-article pre {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 10px;
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.library-article pre code { background: none; border: none; padding: 0; }
+
 /* ---------- Fire button (M7 AIMBOT) ---------- */
 .fire-btn {
   position: absolute;

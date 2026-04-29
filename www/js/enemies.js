@@ -106,6 +106,35 @@ export class EnemyManager {
     }
   }
 
+  /** Rebase: simulate "the dev relaunched the game and the OS allocated
+   *  the entity array somewhere new in memory." Existing addresses
+   *  become noise; new addresses get bound. Used by M8 POINTER SCAN. */
+  rebase() {
+    // Unbind every old enemy field — the cells stay (any watchlist
+    // entry pointed at them will keep displaying), but they're now
+    // ordinary noise.
+    this.enemies.forEach((_, i) => {
+      const base = this.baseAddr + i * STRIDE;
+      [F_ID, F_X, F_Y, F_HP].forEach(off => {
+        memory.unbind(SimMemory.formatAddr(base + off));
+      });
+    });
+    // Pick a fresh base and re-bind.
+    this.baseAddr = memory.reserveBlock(STRIDE, this.enemies.length);
+    this.enemies.forEach((e, i) => {
+      const base = this.baseAddr + i * STRIDE;
+      const A = (off) => SimMemory.formatAddr(base + off);
+      memory.bindGameValueAt(A(F_ID), `enemy[${i}].id`,
+        () => e.id, v => { e.id = v; });
+      memory.bindGameValueAt(A(F_X),  `enemy[${i}].x`,
+        () => e.x,  v => { e.x = v; });
+      memory.bindGameValueAt(A(F_Y),  `enemy[${i}].y`,
+        () => e.y,  v => { e.y = v; });
+      memory.bindGameValueAt(A(F_HP), `enemy[${i}].hp`,
+        () => e.hp, v => { e.hp = v; });
+    });
+  }
+
   step(now) {
     for (const e of this.enemies) e.step(now);
   }

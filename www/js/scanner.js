@@ -1,16 +1,33 @@
 // Memory Scanner UI controller — Cheat Engine clone, simplified.
+//
+// Watchlist supports two entry types:
+//   - direct: { type: "direct", addr, prevValue }
+//       Frozen state lives on the memory cell itself (memory.setFrozen).
+//   - chain:  { type: "chain", baseAddr, offset, frozen, frozenValue, prevValue }
+//       Freeze is managed here in the watchlist tick — every tick we
+//       resolve baseAddr -> baseValue, then write frozenValue to the
+//       cell at formatAddr(baseValue + offset). Survives rebases.
 
-import { memory } from "./sim-memory.js";
+import { memory, SimMemory } from "./sim-memory.js";
 import { getToolName, setToolName, isToolFlagged } from "./anticheat.js";
 
 const MAX_RESULT_ROWS = 200;
+
+function chainKey(baseAddr, offset) {
+  return `chain:${baseAddr}+${offset}`;
+}
+function offHex(off) {
+  return "0x" + off.toString(16).padStart(2, "0").toUpperCase();
+}
 
 export class Scanner {
   constructor(root, { audio } = {}) {
     this.root = root;
     this.audio = audio || null;
     this.lastResults = null;
+    /** @type {Map<string, object>} */
     this.watch = new Map();
+    this.lastPointerResults = null;
 
     this.$value    = root.querySelector("#scan-value");
     this.$mode     = root.querySelector("#scan-mode");
@@ -21,9 +38,26 @@ export class Scanner {
     this.$results  = root.querySelector("#scan-results");
     this.$watch    = root.querySelector("#watchlist");
 
+    this.$manualAddr     = root.querySelector("#manual-addr");
+    this.$btnManualAdd   = root.querySelector("#btn-manual-add");
+    this.$pointerTarget  = root.querySelector("#pointer-target");
+    this.$btnFindPtr     = root.querySelector("#btn-find-pointers");
+    this.$pointerStatus  = root.querySelector("#pointer-status");
+    this.$pointerResults = root.querySelector("#pointer-results");
+
     this.$first.addEventListener("click", () => this.firstScan());
     this.$next.addEventListener("click",  () => this.nextScan());
     this.$reset.addEventListener("click", () => this.reset());
+
+    if (this.$btnManualAdd) {
+      this.$btnManualAdd.addEventListener("click", () => this._manualAdd());
+      this.$manualAddr.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); this._manualAdd(); }
+      });
+    }
+    if (this.$btnFindPtr) {
+      this.$btnFindPtr.addEventListener("click", () => this.findPointers());
+    }
 
     this.$tool     = root.querySelector("#tool-name");
     this.$toolRow  = root.querySelector(".tool-row");
@@ -54,29 +88,30 @@ export class Scanner {
 
   reset() {
     this.lastResults = null;
+    this.lastPointerResults = null;
     this.$results.innerHTML = '<li class="empty">No scan yet. Enter a value and tap "First Scan".</li>';
     this.$status.textContent = "No scan yet.";
     this.$next.disabled = true;
     if (this.$value) this.$value.value = "0";
     const exact = this.root.querySelector('input[name="filter"][value="exact"]');
     if (exact) exact.checked = true;
+    if (this.$pointerResults) this.$pointerResults.innerHTML = "";
+    if (this.$pointerStatus) this.$pointerStatus.textContent = "";
   }
 
   clearWatchlist() {
-    for (const addr of [...this.watch.keys()]) {
-      memory.setFrozen(addr, false);
-      this.watch.delete(addr);
+    for (const [, entry] of this.watch) {
+      if (entry.type === "direct") memory.setFrozen(entry.addr, false);
     }
+    this.watch.clear();
     this._renderWatchlist();
   }
+
+  // ---- Scan ----
 
   firstScan() {
     const mode = this.$mode ? this.$mode.value : "exact";
     if (mode === "unknown") {
-      // Cheat-Engine-style "Unknown initial value" — snapshot every
-      // cell so the player can narrow with directional filters
-      // (increased / decreased / changed) without having to read the
-      // value off the HUD first.
       this.lastResults = memory.scanAll();
       this._renderResults();
       this.$next.disabled = this.lastResults.length === 0;
@@ -114,7 +149,6 @@ export class Scanner {
       return;
     }
     const rows = this.lastResults.slice(0, MAX_RESULT_ROWS);
-    // Stagger each row's in-animation so they cascade like a stream.
     const html = rows.map((r, i) => `
       <li class="row-in" style="animation-delay:${Math.min(i, 24) * 12}ms">
         <span class="addr">${r.addr}</span>
@@ -131,19 +165,111 @@ export class Scanner {
     });
   }
 
+  // ---- Manual address add ----
+
+  _manualAdd() {
+    if (!this.$manualAddr) return;
+    let raw = (this.$manualAddr.value || "").trim();
+    if (!raw) { return; }
+    if (!raw.toLowerCase().startsWith("0x")) raw = "0x" + raw;
+    const hex = raw.slice(2).toUpperCase();
+    if (!/^[0-9A-F]+$/.test(hex)) {
+      this.$status.textContent = "Manual add: not valid hex.";
+      return;
+    }
+    const padded = "0x" + hex.padStart(12, "0");
+    this.addToWatchlist(padded);
+    this.$manualAddr.value = "";
+    this.$status.textContent = `Added ${padded} to watchlist.`;
+  }
+
+  // ---- Pointer scan ----
+
+  findPointers() {
+    if (!this.$pointerResults) return;
+    let target = (this.$pointerTarget && this.$pointerTarget.value || "").trim();
+    if (!target) {
+      // Default to the first watched DIRECT entry.
+      for (const [, entry] of this.watch) {
+        if (entry.type === "direct") { target = entry.addr; break; }
+      }
+    }
+    if (!target) {
+      this.$pointerStatus.textContent = "No target — type a hex address or watch one first.";
+      return;
+    }
+    if (!target.toLowerCase().startsWith("0x")) target = "0x" + target;
+    const hex = target.slice(2).toUpperCase();
+    const padded = "0x" + hex.padStart(12, "0");
+    const hits = memory.findPointersTo(padded, 0x80, 4);
+    this.lastPointerResults = hits;
+    if (this.$pointerTarget) this.$pointerTarget.value = padded;
+    if (hits.length === 0) {
+      this.$pointerResults.innerHTML = '<li class="empty">No pointers resolve to that address. Try a different target — entity-array bases tend to be the answer.</li>';
+      this.$pointerStatus.textContent = `0 pointers found for ${padded}.`;
+      return;
+    }
+    this.$pointerStatus.textContent = `${hits.length} pointer chain(s) found for ${padded}.`;
+    const html = hits.slice(0, 12).map(h => `
+      <li class="row-in">
+        <span class="addr">[${h.ptrAddr}]+${offHex(h.offset)}</span>
+        <button class="add" data-base="${h.ptrAddr}" data-off="${h.offset}">+ chain</button>
+      </li>
+    `).join("");
+    this.$pointerResults.innerHTML = html;
+    this.$pointerResults.querySelectorAll("button.add").forEach(b => {
+      b.addEventListener("click", () => {
+        this.addChainToWatchlist(b.dataset.base, parseInt(b.dataset.off, 10));
+      });
+    });
+    if (this.audio) this.audio.scan();
+  }
+
+  // ---- Watchlist ----
+
   addToWatchlist(addr) {
     if (this.watch.has(addr)) return;
-    this.watch.set(addr, { value: memory.read(addr) });
+    this.watch.set(addr, { type: "direct", addr, prevValue: memory.read(addr) });
     this._renderWatchlist();
     if (this.audio) this.audio.tap();
     this._emit("watch");
   }
 
-  removeFromWatchlist(addr) {
-    this.watch.delete(addr);
-    memory.setFrozen(addr, false);
+  addChainToWatchlist(baseAddr, offset) {
+    const key = chainKey(baseAddr, offset);
+    if (this.watch.has(key)) return;
+    this.watch.set(key, {
+      type: "chain", baseAddr, offset,
+      frozen: false, frozenValue: 0, prevValue: undefined,
+    });
+    this._renderWatchlist();
+    if (this.audio) this.audio.tap();
+    this._emit("watch");
+  }
+
+  removeFromWatchlist(key) {
+    const entry = this.watch.get(key);
+    if (!entry) return;
+    if (entry.type === "direct") memory.setFrozen(entry.addr, false);
+    this.watch.delete(key);
     this._renderWatchlist();
     this._emit("watch");
+  }
+
+  _entryDisplayAddr(entry) {
+    return entry.type === "chain"
+      ? `[${entry.baseAddr.slice(0, 6)}…]+${offHex(entry.offset)}`
+      : entry.addr;
+  }
+  _entryFullAddr(entry) {
+    return entry.type === "chain"
+      ? `[${entry.baseAddr}]+${offHex(entry.offset)}`
+      : entry.addr;
+  }
+  _resolveChain(entry) {
+    const baseVal = memory.read(entry.baseAddr);
+    if (baseVal == null || !Number.isFinite(baseVal)) return null;
+    return SimMemory.formatAddr(baseVal + entry.offset);
   }
 
   _renderWatchlist() {
@@ -151,63 +277,100 @@ export class Scanner {
       this.$watch.innerHTML = '<li class="empty">Tap "+ watch" on a result to track it here.</li>';
       return;
     }
-    const html = [...this.watch.keys()].map(addr => {
-      const cur = memory.read(addr);
-      const frozen = memory.isFrozen(addr);
+    const html = [...this.watch.entries()].map(([key, entry]) => {
+      const isChain = entry.type === "chain";
+      let curVal, isFrozen;
+      if (isChain) {
+        const realAddr = this._resolveChain(entry);
+        curVal = realAddr ? memory.read(realAddr) : undefined;
+        isFrozen = !!entry.frozen;
+      } else {
+        curVal = memory.read(entry.addr);
+        isFrozen = memory.isFrozen(entry.addr);
+      }
+      const display = curVal == null ? "—" : curVal;
+      const cls = isChain ? "chain" : "";
+      const dataAddrAttr = isChain ? "" : `data-addr="${entry.addr}"`;
       return `
-        <li data-addr="${addr}">
-          <span class="addr">${addr}</span>
-          <input class="value-edit" type="number" inputmode="numeric" value="${cur}" />
-          <label class="freeze"><input type="checkbox" class="freeze-cb" ${frozen ? "checked" : ""}/> freeze</label>
+        <li class="${cls}" data-key="${key}" ${dataAddrAttr} title="${this._entryFullAddr(entry)}">
+          <span class="addr">${this._entryDisplayAddr(entry)}</span>
+          <input class="value-edit" type="number" inputmode="numeric" value="${display}" />
+          <label class="freeze"><input type="checkbox" class="freeze-cb" ${isFrozen ? "checked" : ""}/> freeze</label>
           <button class="remove">x</button>
         </li>`;
     }).join("");
     this.$watch.innerHTML = html;
     this.$watch.querySelectorAll("li").forEach(li => {
-      const addr = li.dataset.addr;
+      const key = li.dataset.key;
+      const entry = this.watch.get(key);
+      if (!entry) return;
       li.querySelector(".value-edit").addEventListener("change", e => {
         const nv = parseInt(e.target.value, 10);
         if (Number.isNaN(nv)) return;
-        memory.write(addr, nv);
+        if (entry.type === "direct") {
+          memory.write(entry.addr, nv);
+        } else {
+          if (entry.frozen) entry.frozenValue = nv;
+          const realAddr = this._resolveChain(entry);
+          if (realAddr) memory.write(realAddr, nv);
+        }
         this._emit("write");
       });
       li.querySelector(".freeze-cb").addEventListener("change", e => {
-        memory.setFrozen(addr, e.target.checked);
-        if (this.audio && e.target.checked) this.audio.lock();
+        const checked = e.target.checked;
+        if (entry.type === "direct") {
+          memory.setFrozen(entry.addr, checked);
+        } else {
+          entry.frozen = checked;
+          if (checked) {
+            const realAddr = this._resolveChain(entry);
+            entry.frozenValue = realAddr ? (memory.read(realAddr) | 0) : 0;
+          }
+        }
+        if (this.audio && checked) this.audio.lock();
         this._emit("freeze");
       });
-      li.querySelector(".remove").addEventListener("click", () => this.removeFromWatchlist(addr));
+      li.querySelector(".remove").addEventListener("click", () => this.removeFromWatchlist(key));
     });
   }
 
-  // Live-refresh the displayed values in the watchlist so frozen vs. free are
-  // visible without re-scanning. Pulses a row briefly when its value changes
-  // so the user *sees* memory churning in front of them.
   _tickWatchlist() {
-    const prev = new Map();
     setInterval(() => {
-      for (const li of this.$watch.querySelectorAll("li[data-addr]")) {
-        const addr = li.dataset.addr;
+      for (const li of this.$watch.querySelectorAll("li[data-key]")) {
+        const key = li.dataset.key;
+        const entry = this.watch.get(key);
+        if (!entry) continue;
         const input = li.querySelector(".value-edit");
         if (!input) continue;
-        const cur = memory.read(addr);
-        const isFrozen = memory.isFrozen(addr);
-        li.classList.toggle("frozen", isFrozen);
-        if (document.activeElement !== input) {
-          input.value = cur;
+        let cur, isFrozen;
+        if (entry.type === "chain") {
+          const realAddr = this._resolveChain(entry);
+          cur = realAddr ? memory.read(realAddr) : undefined;
+          isFrozen = !!entry.frozen;
+          // Apply chain freeze every tick — write back to whatever the
+          // pointer currently resolves to.
+          if (entry.frozen && realAddr != null) {
+            memory.write(realAddr, entry.frozenValue);
+            cur = entry.frozenValue;
+          }
+        } else {
+          cur = memory.read(entry.addr);
+          isFrozen = memory.isFrozen(entry.addr);
         }
-        if (prev.has(addr) && prev.get(addr) !== cur) {
+        li.classList.toggle("frozen", isFrozen);
+        const display = cur == null ? "—" : cur;
+        if (document.activeElement !== input) input.value = display;
+        if (entry.prevValue !== undefined && entry.prevValue !== cur) {
           li.classList.remove("changed");
           void li.offsetWidth;
           li.classList.add("changed");
           setTimeout(() => li.classList.remove("changed"), 350);
         }
-        prev.set(addr, cur);
+        entry.prevValue = cur;
       }
     }, 200);
   }
 
-  // Light pub/sub for missions to react to scanner activity.
   _listeners = new Set();
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
   _emit(kind) { for (const fn of this._listeners) fn(kind, this); }

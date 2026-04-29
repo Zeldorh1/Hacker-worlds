@@ -56,9 +56,24 @@
             <button id="btn-mute" class="ghost small" aria-label="toggle sound">audio: on</button>
             <button id="btn-hints" class="ghost small">hints: off</button>
             <button id="btn-tutorial" class="ghost small">tutorial</button>
+            <button id="btn-library" class="ghost small">codex</button>
             <button id="btn-force-update" class="ghost small">force update</button>
             <button id="btn-reset-progress" class="ghost small">reset progress</button>
           </div>
+        </div>
+      </section>
+
+      <section id="view-library" class="view">
+        <div class="library">
+          <div class="library-header">
+            <button id="btn-library-back" class="ghost small">&#9001; back</button>
+            <div class="library-title">CODEX</div>
+          </div>
+          <div id="library-list-wrap">
+            <div class="library-sub">/ real-world reference. concepts you can take from this app to Cheat Engine, x64dbg, and Frida today.</div>
+            <ul id="library-list" class="library-list"></ul>
+          </div>
+          <article id="library-article" class="library-article" hidden></article>
         </div>
       </section>
 
@@ -68,6 +83,7 @@
           <div id="damage-flash" class="damage-flash"></div>
           <div id="paused-overlay" class="paused-overlay" hidden>PAUSED</div>
           <button id="btn-pause" class="pause-btn" aria-label="pause">⏸</button>
+          <button id="btn-restart" class="restart-btn" hidden>RESTART</button>
         </div>
         <div id="hud" class="hud">
           <div class="hud-map">ac_anomaly · v0.1</div>
@@ -125,7 +141,21 @@
           <div class="scan-status" id="scan-status">No scan yet.</div>
           <ul id="scan-results" class="scan-results"></ul>
 
+          <div class="ptr-section">
+            <div class="ptr-header">POINTER SCAN</div>
+            <div class="scanner-row ptr-row">
+              <input id="pointer-target" type="text" placeholder="0x… (defaults to first watched)" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <button id="btn-find-pointers">Find Pointers</button>
+            </div>
+            <div id="pointer-status" class="scan-status"></div>
+            <ul id="pointer-results" class="scan-results ptr-results"></ul>
+          </div>
+
           <div class="watchlist-header">Watchlist</div>
+          <div class="scanner-row manual-row">
+            <input id="manual-addr" type="text" placeholder="manually add 0x…" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            <button id="btn-manual-add">+ add</button>
+          </div>
           <ul id="watchlist" class="watchlist"></ul>
         </div>
       </section>

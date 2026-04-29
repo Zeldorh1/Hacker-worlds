@@ -89,6 +89,17 @@ export class AssaultZone {
     this.radarActive = false;
     this.espActive = false;
 
+    // Static pointer cell whose VALUE is always the current entity-array
+    // base address. Survives rebases — the address itself never moves,
+    // even though the value updates each tick. M8 POINTER SCAN teaches
+    // you to find this cell so you can build a chain that resolves to
+    // the current enemy[i].* across simulated game restarts.
+    this.addrEntityArrPtr = memory.bindGameValue("entity_arr_ptr",
+      () => this.enemyManager.baseAddr,
+      () => {},   // read-only from gameplay's perspective
+      "ptr");
+    this.rebaseCount = 0;
+
     // Watchdog (M6) — a fake "anti-tamper" thread the target runs.
     // Bound to a memory cell that increments every 1.5s. While the cell
     // increments, an integrity check runs against the player's stat
@@ -195,6 +206,16 @@ export class AssaultZone {
   disableBleed() { this.bleedActive = false; }
   enableEnemies() { this.enemiesActive = true; }
   disableEnemies() { this.enemiesActive = false; }
+
+  /** Simulate a session restart: relocate the entity-array in memory,
+   *  leaving the old cells as raw noise. Direct watchlist entries
+   *  pointing at the old addresses keep "working" but now show
+   *  garbage; pointer-chain entries (M8) re-resolve correctly. */
+  triggerRebase() {
+    this.enemyManager.rebase();
+    this.rebaseCount++;
+    if (this.audio) this.audio.fail && this.audio.fail();
+  }
   enableRadar()   { this.radarActive = true; }
   disableRadar()  { this.radarActive = false; }
   enableESP()     { this.espActive = true; }
