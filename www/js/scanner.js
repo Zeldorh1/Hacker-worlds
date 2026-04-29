@@ -12,13 +12,14 @@ export class Scanner {
     this.lastResults = null;
     this.watch = new Map();
 
-    this.$value   = root.querySelector("#scan-value");
-    this.$first   = root.querySelector("#btn-first-scan");
-    this.$next    = root.querySelector("#btn-next-scan");
-    this.$reset   = root.querySelector("#btn-reset-scan");
-    this.$status  = root.querySelector("#scan-status");
-    this.$results = root.querySelector("#scan-results");
-    this.$watch   = root.querySelector("#watchlist");
+    this.$value    = root.querySelector("#scan-value");
+    this.$mode     = root.querySelector("#scan-mode");
+    this.$first    = root.querySelector("#btn-first-scan");
+    this.$next     = root.querySelector("#btn-next-scan");
+    this.$reset    = root.querySelector("#btn-reset-scan");
+    this.$status   = root.querySelector("#scan-status");
+    this.$results  = root.querySelector("#scan-results");
+    this.$watch    = root.querySelector("#watchlist");
 
     this.$first.addEventListener("click", () => this.firstScan());
     this.$next.addEventListener("click",  () => this.nextScan());
@@ -70,12 +71,24 @@ export class Scanner {
   }
 
   firstScan() {
-    const v = parseInt(this.$value.value, 10);
-    if (Number.isNaN(v)) { this.$status.textContent = "Enter a number."; return; }
-    this.lastResults = memory.scan(v);
-    this._renderResults();
-    this.$next.disabled = this.lastResults.length === 0;
-    this.$status.textContent = `${this.lastResults.length} match(es) for ${v}.`;
+    const mode = this.$mode ? this.$mode.value : "exact";
+    if (mode === "unknown") {
+      // Cheat-Engine-style "Unknown initial value" — snapshot every
+      // cell so the player can narrow with directional filters
+      // (increased / decreased / changed) without having to read the
+      // value off the HUD first.
+      this.lastResults = memory.scanAll();
+      this._renderResults();
+      this.$next.disabled = this.lastResults.length === 0;
+      this.$status.textContent = `${this.lastResults.length} cells snapshotted (unknown initial value). Use 'changed' / 'decreased' / 'increased' next.`;
+    } else {
+      const v = parseInt(this.$value.value, 10);
+      if (Number.isNaN(v)) { this.$status.textContent = "Enter a number."; return; }
+      this.lastResults = memory.scan(v);
+      this._renderResults();
+      this.$next.disabled = this.lastResults.length === 0;
+      this.$status.textContent = `${this.lastResults.length} match(es) for ${v}.`;
+    }
     if (this.audio) this.audio.scan();
     this._emit("scan");
     this._emit("scan-action");

@@ -179,6 +179,20 @@ class SimMemory {
   }
 
   /**
+   * Snapshot every cell — Cheat Engine's "Unknown initial value" first
+   * scan. Subsequent narrows with increased / decreased / changed /
+   * unchanged filters whittle the list down without you ever needing
+   * to type a number.
+   */
+  scanAll() {
+    const out = [];
+    for (const [addr, cell] of this.cells) {
+      out.push({ addr, value: cell.value });
+    }
+    return out;
+  }
+
+  /**
    * Filter a previous scan result against current memory.
    *   mode = "exact"      -> still equals value
    *   mode = "changed"    -> value differs from prev.value

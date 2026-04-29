@@ -230,6 +230,8 @@ async function boot() {
     hideDetectionBar();
     hideViolationBar();
     document.body.classList.remove("guided");
+    const $paused = document.getElementById("paused-overlay");
+    if ($paused) $paused.hidden = true;
   }
 
   function endMission() {
@@ -386,6 +388,16 @@ async function boot() {
   document.getElementById("btn-fire").addEventListener("click", (e) => {
     e.stopPropagation();
     target.fire();
+  });
+
+  document.getElementById("btn-pause").addEventListener("click", (e) => {
+    e.stopPropagation();
+    target.togglePause();
+    document.getElementById("paused-overlay").hidden = !target.paused;
+    if (activeTimer) {
+      if (target.paused) activeTimer.pause(); else activeTimer.resume();
+    }
+    if (audio) audio.tap();
   });
 
   setMode("hub");

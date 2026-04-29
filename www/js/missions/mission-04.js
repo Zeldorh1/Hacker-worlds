@@ -21,17 +21,23 @@ export const mission04 = {
 
   hints: [
     {
-      id: "pick-enemy",
-      min: 14,
+      id: "pause-tip",
+      min: 6,
+      when: ({ target, scannerState }) => !target.paused && scannerState.lastResults === null,
+      say: "Hard to read enemy coords on a phone? Tap the ⏸ pause button (top-right of ac_anomaly) — enemies freeze, trace stops, you can scan in peace.",
+    },
+    {
+      id: "pick-enemy-or-unknown",
+      min: 4,
       when: ({ scannerState }) => scannerState.lastResults === null,
-      say: "Pick any red square (enemy) in ac_anomaly. Watch its X coord shift between two values as it patrols. First Scan one of those numbers in the Scanner.",
+      say: "Two paths: (1) Read an enemy's X off the radar dot and First Scan it. (2) Cleaner: switch the Scan dropdown to 'Unknown Initial Value' and First Scan — that snapshots all 12k cells, no value needed.",
     },
     {
       id: "use-changed-or-direction",
-      min: 5,
+      min: 4,
       when: ({ scannerState }) =>
         scannerState.lastResults && scannerState.lastResults.length > 1,
-      say: "Wait a beat for the enemy to walk, then Next Scan with 'changed' (or 'increased'/'decreased' if you saw which way they moved). Most cells will drop.",
+      say: "Now unpause and let an enemy walk a few steps. Pause again, set the filter radio to 'changed' (or 'increased'/'decreased' if you tracked direction), tap Next Scan. Repeat — each round drops cells that didn't move with the patrol.",
     },
     {
       id: "watch-enemy-x",

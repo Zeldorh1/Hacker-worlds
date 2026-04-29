@@ -30,7 +30,11 @@ export class Timer {
     if (this._interval) { clearInterval(this._interval); this._interval = null; }
   }
 
+  pause()  { this._paused = true; }
+  resume() { this._paused = false; this._lastWallClock = performance.now(); }
+
   _tick() {
+    if (this._paused) { this._lastWallClock = performance.now(); return; }
     const now = performance.now();
     const dt  = (now - this._lastWallClock) / 1000;
     this._lastWallClock = now;

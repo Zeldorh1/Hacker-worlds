@@ -120,10 +120,28 @@ export class AssaultZone {
       () => this.crosshairTargetId,
       v => { this.crosshairTargetId = v; });
 
+    this.paused = false;
+    this._pausedAt = 0;
+
     this._wireInput();
     this._fitCanvas();
     window.addEventListener("resize", () => this._fitCanvas());
   }
+
+  pause()  { if (!this.paused) { this.paused = true;  this._pausedAt = performance.now(); } }
+  resume() {
+    if (!this.paused) return;
+    const pausedFor = performance.now() - this._pausedAt;
+    this.paused = false;
+    // Shift cooldown timestamps so the player doesn't get a free move
+    // / hazard / bleed tick the instant they unpause.
+    this.lastMoveAt      += pausedFor;
+    this.lastBleedAt     += pausedFor;
+    this.lastHazardTickAt += pausedFor;
+    if (this.watchdog.lastTickAt) this.watchdog.lastTickAt += pausedFor;
+    if (this.weapon.lastFireAt)   this.weapon.lastFireAt += pausedFor;
+  }
+  togglePause() { if (this.paused) this.resume(); else this.pause(); }
 
   // ---- Mission control surface ----
 
@@ -132,6 +150,7 @@ export class AssaultZone {
     this.player.y = SPAWN.y;
     this.player.hp = 100;
     this.player.ammo = 30;
+    this.paused = false;
     this.hazardsActive = false;
     this.bleedActive = false;
     this.enemiesActive = false;
@@ -288,6 +307,13 @@ export class AssaultZone {
   }
 
   update(now) {
+    if (this.paused) {
+      // Still sync memory so frozen values stay frozen, and refresh
+      // the HUD display, but skip all gameplay logic.
+      memory.tick();
+      this._renderHud();
+      return;
+    }
     if (now - this.lastMoveAt > this.moveCooldownMs) {
       let dx = 0, dy = 0;
       if (this.input.up) dy -= 1;
@@ -386,7 +412,10 @@ export class AssaultZone {
     // Sync game <-> memory (also applies any frozen writes).
     memory.tick();
 
-    // HUD reflects current game state.
+    this._renderHud();
+  }
+
+  _renderHud() {
     document.getElementById("hud-x").textContent  = this.player.x;
     document.getElementById("hud-y").textContent  = this.player.y;
     const $hp = document.getElementById("hud-hp");
