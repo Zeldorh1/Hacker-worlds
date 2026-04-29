@@ -1,5 +1,5 @@
 // Minimal offline cache so the app works on a phone with no signal.
-const CACHE = "hw-v5";
+const CACHE = "hw-v6";
 const ASSETS = [
   "./",
   "./index.html",
@@ -35,6 +35,9 @@ const ASSETS = [
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+});
+self.addEventListener("message", e => {
+  if (e.data && e.data.type === "skip-waiting") self.skipWaiting();
 });
 self.addEventListener("activate", e => {
   e.waitUntil(

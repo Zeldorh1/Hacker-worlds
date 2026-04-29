@@ -406,7 +406,31 @@ async function boot() {
   document.querySelector("#dialog-bar .speaker").textContent = "HW";
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker.register("./sw.js")
+      .then(reg => {
+        // Aggressively poll for new SW versions every 30s while the
+        // app is open. When a new one finishes installing, ask the
+        // active SW to skip waiting + reload so the user sees the
+        // latest code without manually clearing caches.
+        const triggerUpdate = () => reg.update().catch(() => {});
+        setInterval(triggerUpdate, 30 * 1000);
+        if (reg.waiting) reg.waiting.postMessage({ type: "skip-waiting" });
+        reg.addEventListener("updatefound", () => {
+          const sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener("statechange", () => {
+            if (sw.state === "installed" && navigator.serviceWorker.controller) {
+              showToast("update available · reloading", 1800);
+              setTimeout(() => location.reload(), 1500);
+            }
+          });
+        });
+      })
+      .catch(() => {});
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      // Old SW released control to a new one — refresh once to ensure
+      // the page is using new modules.
+    });
   }
 
   window.__hw = { target, scanner, dialog, missionState, launchMission, endMission, audio, memory };
