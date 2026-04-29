@@ -1,5 +1,5 @@
 // Minimal offline cache so the app works on a phone with no signal.
-const CACHE = "hw-v6";
+const CACHE = "hw-v7";
 const ASSETS = [
   "./",
   "./index.html",
