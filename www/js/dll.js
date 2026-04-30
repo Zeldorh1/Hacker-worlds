@@ -69,6 +69,12 @@ export class DllRuntime {
      *  cheat-menu UI. Real-world equivalent: an ImGui WndProc
      *  detour or a custom Win32 input handler. */
     this.inputHooks = [];
+    /** Process-enumeration hooks — fn(processes) → filtered list.
+     *  M41 uses these to hide the simulator's Scanner from the
+     *  HackShield-style anti-cheat scan. Real-world equivalent:
+     *  hooking NtQuerySystemInformation in ntdll to filter the
+     *  process list before the AC walks it. */
+    this.processEnumHooks = [];
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -120,6 +126,19 @@ export class DllRuntime {
       // The simulator's recv-side validator will accept the new sig.
       compute_hmac: (pkt, key) => {
         return AssaultZone.computeHmac(pkt, key | 0);
+      },
+      // M41 — hook the OS process-enumeration call. fn(processes)
+      // gets the current process list; return a filtered list to
+      // hide processes from anyone who walks the enumeration.
+      // Real-world equivalent: NtQuerySystemInformation detour
+      // (or ZwQuerySystemInformation, same thing).
+      register_proc_enum_hook: (fn) => {
+        if (typeof fn !== "function") {
+          this.log("[register_proc_enum_hook] fn must be a function");
+          return;
+        }
+        this.processEnumHooks.push(fn);
+        this._emit();
       },
       // M36 — install an input hook. fn({type, x, y}) is called for
       // every canvas tap. Coordinates are in canvas pixel space (the
@@ -192,6 +211,7 @@ export class DllRuntime {
             "find_pointers_to", "log", "register_cheat",
             "register_render_hook", "register_packet_hook", "load_payload",
             "inject_packet", "register_input_hook", "compute_hmac",
+        "register_proc_enum_hook",
             wrapped
           );
           const a = this._makeApi();
@@ -200,7 +220,8 @@ export class DllRuntime {
             a.addr_of, a.read_label, a.write_label, a.freeze_label,
             a.find_pointers_to, a.log, a.register_cheat,
             a.register_render_hook, a.register_packet_hook, a.load_payload,
-            a.inject_packet, a.register_input_hook, a.compute_hmac
+            a.inject_packet, a.register_input_hook, a.compute_hmac,
+        a.register_proc_enum_hook
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -270,6 +291,7 @@ return {
         "find_pointers_to", "log", "register_cheat",
         "register_render_hook", "register_packet_hook", "load_payload",
         "inject_packet", "register_input_hook", "compute_hmac",
+        "register_proc_enum_hook",
         wrapped
       );
     } catch (e) {
@@ -283,7 +305,8 @@ return {
         a.addr_of, a.read_label, a.write_label, a.freeze_label,
         a.find_pointers_to, a.log, a.register_cheat,
         a.register_render_hook, a.register_packet_hook, a.load_payload,
-        a.inject_packet, a.register_input_hook, a.compute_hmac
+        a.inject_packet, a.register_input_hook, a.compute_hmac,
+        a.register_proc_enum_hook
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
@@ -366,6 +389,7 @@ return {
     this._payloadTicks = [];    // clear payload tick functions
     this.packetHooks = [];      // clear packet hooks
     this.inputHooks = [];       // clear input hooks
+    this.processEnumHooks = []; // clear proc-enum hooks
     this.log("DLL ejected");
     this._emit();
   }

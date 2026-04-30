@@ -157,6 +157,31 @@ export class AssaultZone {
       lastHits: [],
     };
 
+    // M41 — fake 'OS-level process list' the simulator pretends the
+    // game can see. The scanner tool registers itself as a process
+    // here; a HackShield-class detector walks this list looking for
+    // suspicious entries. Bypass: DLL registers a proc-enum hook
+    // that filters this list before the shield reads it.
+    this.processes = [
+      { name: "ac_anomaly.exe",       suspicious: false },
+      { name: "explorer.exe",         suspicious: false },
+      { name: "chrome.exe",           suspicious: false },
+      { name: "Hacker Worlds Scanner", suspicious: true,  fingerprint: "scanner" },
+    ];
+
+    // M41 — HackShield-style anti-cheat. Periodically walks the
+    // process list, matches against known suspicious fingerprints.
+    // Detection accumulates; threshold trips a mission-fail
+    // ("game closed by anti-cheat").
+    this.cheatShield = {
+      enabled: false,
+      scanIntervalMs: 1500,
+      lastScanAt: 0,
+      detections: 0,
+      threshold: 3,
+      lastDetectedFingerprints: [],
+    };
+
     // M33 — behavioral detector. Tracks recent crosshair-target
     // changes. Bots that snap to a new target every frame (zero
     // reaction delay) generate a stream of instant changes that
@@ -490,6 +515,9 @@ export class AssaultZone {
     this.acScanner.enabled = false;
     this.acScanner.violations = 0;
     this.acScanner.lastHits = [];
+    this.cheatShield.enabled = false;
+    this.cheatShield.detections = 0;
+    this.cheatShield.lastDetectedFingerprints = [];
     this.behavioral.enabled = false;
     this.behavioral.recentSwitches = [];
     this.behavioral.violations = 0;
@@ -619,6 +647,20 @@ export class AssaultZone {
   }
   disableSequence() {
     this.network.sequence.enabled = false;
+  }
+
+  // M41 — turn on the HackShield-style process scanner. It walks
+  // target.processes through the DLL's proc-enum hooks, then
+  // matches against suspicious fingerprints. detections climbs;
+  // missions fail when it crosses threshold.
+  enableCheatShield() {
+    this.cheatShield.enabled = true;
+    this.cheatShield.detections = 0;
+    this.cheatShield.lastScanAt = performance.now();
+    this.cheatShield.lastDetectedFingerprints = [];
+  }
+  disableCheatShield() {
+    this.cheatShield.enabled = false;
   }
 
   // M40 — periodically simulate a spectator joining/leaving.
@@ -1030,6 +1072,32 @@ export class AssaultZone {
     if (this.enemiesActive) {
       this.enemyManager.step(now);
       this._updateCrosshair();
+    }
+
+    // M41 — HackShield process scan. Every scanIntervalMs, ask the
+    // OS for the running-process list (this.processes), pass it
+    // through any DLL proc-enum hooks (which can filter / hide
+    // processes), then match against suspicious fingerprints.
+    if (this.cheatShield.enabled &&
+        now - this.cheatShield.lastScanAt > this.cheatShield.scanIntervalMs) {
+      this.cheatShield.lastScanAt = now;
+      const dll = (typeof window !== "undefined" && window.__hw)
+        ? window.__hw.dll : null;
+      let visibleProcesses = this.processes.slice();
+      if (dll && dll.processEnumHooks) {
+        for (const hook of dll.processEnumHooks) {
+          try {
+            const filtered = hook(visibleProcesses);
+            if (Array.isArray(filtered)) visibleProcesses = filtered;
+          } catch (e) {
+            if (dll.log) dll.log("[proc_enum hook error] " + e.message);
+          }
+        }
+      }
+      const hits = visibleProcesses.filter(p => p && p.suspicious);
+      this.cheatShield.lastDetectedFingerprints = hits.map(p => p.fingerprint || p.name);
+      if (hits.length > 0) this.cheatShield.detections++;
+      else this.cheatShield.detections = Math.max(0, this.cheatShield.detections - 1);
     }
 
     // M40 — spectator events. Toggle 'watching' state every ~8s so

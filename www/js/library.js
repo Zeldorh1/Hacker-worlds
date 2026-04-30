@@ -6,6 +6,160 @@
 
 const ARTICLES = [
   {
+    id: "process-hiding-hackshield",
+    title: "Process Hiding — Beating HackShield-Class Scanners",
+    brief: "Why renaming Cheat Engine doesn't work and what does. Hooking the OS process-list call so your tool is invisible to the game's anti-cheat.",
+    body: `
+      <h2>The scanner you can't argue with</h2>
+      <p>Some anti-cheat products run AS A SEPARATE PROCESS alongside
+      the game (or as a kernel driver). They don't care what's
+      happening inside the game's memory — they care about WHAT'S
+      RUNNING ON THE PC. Every 1-3 seconds they enumerate the running
+      processes, hash each .exe, check window titles, walk loaded
+      modules. If they spot Cheat Engine, x64dbg, ReClass, or any
+      known cheat-tool fingerprint, the game closes immediately.</p>
+
+      <p>Names you might recognise: <strong>nProtect GameGuard,
+      HackShield, BattlEye user-mode shim, Vanguard's process
+      walker.</strong> All same shape: separate process, periodic
+      enumeration, fingerprint match → kill the game.</p>
+
+      <h2>Why renaming the .exe doesn't work</h2>
+      <p>Real shields check more than the file name:</p>
+
+      <table style="width:100%; border-collapse:collapse; margin:0.5rem 0;">
+        <tr><th style="text-align:left;">What they check</th><th style="text-align:left;">Renaming defeats it?</th></tr>
+        <tr><td>process name (cheatengine.exe)</td><td>✓ rename helps</td></tr>
+        <tr><td>file hash (MD5/SHA of bytes)</td><td>✗ rename doesn't change content</td></tr>
+        <tr><td>window title ("Cheat Engine 7.5")</td><td>✗ window title independent of file name</td></tr>
+        <tr><td>loaded modules (CE's own DLLs)</td><td>✗ same DLLs regardless of EXE name</td></tr>
+        <tr><td>PE imports / IAT signature</td><td>✗ binary content unchanged</td></tr>
+        <tr><td>file path heuristics ("\\Cheat Engine\\")</td><td>○ helps if you also move the install</td></tr>
+      </table>
+
+      <p>Bottom line: rename + hash-spoof + title-spoof + path-move
+      together raise the bar but don't beat a sophisticated scanner.
+      You have to actually HIDE the process from the OS-level
+      enumeration.</p>
+
+      <h2>How to hide a process</h2>
+      <p>Three layers of OS process hiding, increasing in
+      sophistication:</p>
+
+      <h3>1. Hook the user-mode enumeration call</h3>
+      <p>Windows has <code>NtQuerySystemInformation</code> in
+      <code>ntdll.dll</code>. When called with
+      <code>SystemProcessInformation</code>, it returns a linked list
+      of every running process. Hook this function with MinHook,
+      filter the list before returning, and any user-mode code that
+      walks processes never sees yours:</p>
+
+      <pre><code>typedef NTSTATUS(NTAPI* NtQSI_t)(SYSTEM_INFORMATION_CLASS,
+                                  PVOID, ULONG, PULONG);
+NtQSI_t oNtQSI = nullptr;
+
+NTSTATUS NTAPI hkNtQSI(SYSTEM_INFORMATION_CLASS cls,
+                       PVOID buf, ULONG len, PULONG retLen) {
+    NTSTATUS s = oNtQSI(cls, buf, len, retLen);
+    if (s != 0 || cls != SystemProcessInformation) return s;
+
+    // Walk the linked list, unlink any entry whose ImageName
+    // matches "cheatengine" / our tool fingerprint.
+    PSYSTEM_PROCESS_INFORMATION p = (PSYSTEM_PROCESS_INFORMATION)buf;
+    PSYSTEM_PROCESS_INFORMATION prev = nullptr;
+    while (true) {
+        if (matches_cheat_tool(p->ImageName)) {
+            if (prev) prev->NextEntryOffset += p->NextEntryOffset;
+            else continue;   // first entry handled separately
+        } else {
+            prev = p;
+        }
+        if (p->NextEntryOffset == 0) break;
+        p = (PSYSTEM_PROCESS_INFORMATION)((LPBYTE)p + p->NextEntryOffset);
+    }
+    return s;
+}</code></pre>
+
+      <p>Beats most user-mode scanners. Loses against kernel-mode
+      anti-cheat that calls <code>ZwQuerySystemInformation</code>
+      directly via syscall.</p>
+
+      <h3>2. Direct syscall hooking</h3>
+      <p>Some anti-cheats bypass <code>ntdll</code> and issue raw
+      syscalls. Hooks at the <code>ntdll</code> layer don't catch them.
+      Counter: install your hook deeper, at the syscall instruction
+      itself. This requires SSDT manipulation or kernel-mode driver,
+      out of user-mode reach on modern Windows (PatchGuard).</p>
+
+      <h3>3. Driver-based hiding</h3>
+      <p>Your own kernel driver intercepts the kernel's process-list
+      operations. Pro cheat suites do this. Significantly raises the
+      bar for the AC since now they're fighting a driver-vs-driver
+      battle. Outside scope of an educational curriculum and
+      requires Microsoft-signed driver capability or test-mode
+      installation.</p>
+
+      <h2>Other tools that achieve "hidden CE"</h2>
+      <ul>
+        <li><strong>Cheat Engine standalone variants</strong> with
+            built-in stealth (rename + window-title + path randomization +
+            user-mode ntdll hooks).</li>
+        <li><strong>VMProtect / Themida wrappers</strong> on a CE
+            build that make hash detection harder.</li>
+        <li><strong>Running CE in a separate VM</strong> with shared
+            memory or a proxy. AC sees only its own VM's processes;
+            CE on the host is invisible. Practical for AC research.</li>
+        <li><strong>Memory-only loaders</strong> — never write CE to
+            disk, load it from a network buffer into memory, no .exe
+            on disk for the AC's hash scan.</li>
+      </ul>
+
+      <h2>How M41 simulates this</h2>
+      <p>The simulator has a fake <code>this.processes</code> array
+      representing the OS's view of running processes. The
+      "Hacker Worlds Scanner" entry is in the list with
+      <code>suspicious: true</code>. The cheat-shield system walks
+      this list every 1.5s; matches against suspicious accumulate
+      detections; threshold trips a mission-fail.</p>
+
+      <p><code>register_proc_enum_hook(fn)</code> is the simulator
+      equivalent of an <code>NtQuerySystemInformation</code> detour.
+      The shield calls every registered hook in chain before checking
+      the result. Your hook returns a filtered list — scanner
+      removed — shield sees nothing suspicious, no detection fires.</p>
+
+      <p>Same architecture as real Windows. Same defense. Same bypass.
+      Different layer (user-mode JS vs kernel-mode driver) but
+      identical pedagogically.</p>
+
+      <h2>Defenses against process-hiding hooks</h2>
+      <ul>
+        <li><strong>Hook integrity checks</strong> — AC reads the first
+            5-15 bytes of <code>NtQuerySystemInformation</code>, hashes
+            them, compares against a known-good baseline. JMP injected
+            by your hook breaks the hash.</li>
+        <li><strong>Direct syscall</strong> — AC bypasses ntdll
+            entirely, performs the syscall via raw <code>syscall</code>
+            instruction. Your hook never gets called.</li>
+        <li><strong>Cross-validation</strong> — AC enumerates processes
+            via two different APIs (NtQuerySystemInformation + WMI +
+            EnumProcesses). Your hook needs to match all three.</li>
+        <li><strong>Behavioral analysis</strong> — AC notices a
+            never-shrinking memory footprint inconsistent with the
+            visible process count. Statistical signal.</li>
+      </ul>
+
+      <p>The arms race: every layer of process hiding gets countered
+      by a deeper layer of detection. The only stable equilibrium is
+      kernel-vs-kernel, which requires driver dev experience.</p>
+
+      <p>For AssaultCube and any open-source/offline-friendly target:
+      none of this matters. AC ships zero anti-cheat. The lesson
+      transfers conceptually to defensive AC engineering and to the
+      protected-game side of the curriculum.</p>
+    `,
+  },
+  {
     id: "multiplayer-defenses-full-spectrum",
     title: "Multiplayer Cheat Defenses — The Full Layered Stack",
     brief: "Every defense modern multiplayer ships and the bypass for each. Maps the M18-M20 + M30-M40 missions to the real-world arms race.",
