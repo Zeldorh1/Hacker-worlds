@@ -6,6 +6,271 @@
 
 const ARTICLES = [
   {
+    id: "dll-anatomy-line-by-line",
+    title: "DLL Anatomy — Reading the C++ Line by Line",
+    brief: "Every line of a Windows trainer DLL, explained. What each piece does. What carries over to any game. What changes per target.",
+    body: `
+      <h2>The skeleton you'll see in every cheat DLL ever</h2>
+      <p>Once you understand this 30-line skeleton, you can write
+      a trainer for any Win32 game — only the offsets change. Read
+      slowly, every line matters:</p>
+
+      <pre><code>#include &lt;windows.h&gt;        // Win32 API: HMODULE, DWORD, BOOL, etc.
+#include &lt;process.h&gt;        // CRT thread: _beginthreadex
+#include &lt;stdint.h&gt;         // uintptr_t — pointer-sized int
+
+// Per-game constants (these CHANGE per target):
+constexpr uintptr_t OFF_PLAYER_BASE = 0x10F4F4;   // ac_client.exe + this
+constexpr uintptr_t OFF_HP          = 0xEC;       // player struct + this
+constexpr uintptr_t OFF_AMMO        = 0x140;
+
+// Cheat thread — runs in a separate OS thread inside the game process.
+unsigned __stdcall cheat_thread(void*) {
+    HMODULE hMod = GetModuleHandleA("ac_client.exe");
+    if (!hMod) return 0;
+    uintptr_t base = (uintptr_t)hMod;
+
+    while (true) {
+        uintptr_t player = *(uintptr_t*)(base + OFF_PLAYER_BASE);
+        if (player) {
+            *(int*)(player + OFF_HP)   = 100;
+            *(int*)(player + OFF_AMMO) = 99;
+        }
+        Sleep(16);
+    }
+    return 0;
+}
+
+// DllMain — Windows entry point. Required for every DLL.
+BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(hInst);
+        _beginthreadex(nullptr, 0, cheat_thread, nullptr, 0, nullptr);
+    }
+    return TRUE;
+}</code></pre>
+
+      <p>Now the line-by-line breakdown.</p>
+
+      <h2>The includes</h2>
+      <p><code>&lt;windows.h&gt;</code> — Win32 types and APIs.
+      <code>HMODULE</code> (a handle to a loaded module),
+      <code>DWORD</code> (32-bit unsigned), <code>BOOL</code>
+      (Windows bool, 0 or 1), <code>GetModuleHandleA</code>,
+      <code>DisableThreadLibraryCalls</code>, <code>Sleep</code>.</p>
+
+      <p><code>&lt;process.h&gt;</code> — C runtime threading.
+      <code>_beginthreadex</code> is the CRT-friendly version of
+      <code>CreateThread</code>. Use this if you ever call CRT
+      functions like <code>printf</code> or <code>malloc</code> from
+      your thread; raw <code>CreateThread</code> can leak per-thread
+      state if you do.</p>
+
+      <p><code>&lt;stdint.h&gt;</code> — <code>uintptr_t</code>, an
+      unsigned integer wide enough to hold a pointer. 32-bit on
+      32-bit Windows, 64-bit on 64-bit Windows. Use this for
+      pointer arithmetic instead of <code>int</code> or
+      <code>long</code> to be portable.</p>
+
+      <h2>The offset constants</h2>
+      <pre><code>constexpr uintptr_t OFF_PLAYER_BASE = 0x10F4F4;</code></pre>
+      <p>These are the per-game numbers. <code>0x10F4F4</code> is
+      the byte offset from <code>ac_client.exe</code>'s base address
+      to a static cell that holds a pointer to the player struct.
+      Found via Cheat Engine's pointer scan (M08 lesson).
+      <strong>Different game = different number.</strong></p>
+
+      <p><code>constexpr</code> means the compiler bakes the value
+      directly into the compiled code — no runtime lookup. Same as
+      <code>#define</code> but type-checked.</p>
+
+      <h2>The cheat thread function signature</h2>
+      <pre><code>unsigned __stdcall cheat_thread(void*) { ... }</code></pre>
+      <p><code>_beginthreadex</code> requires this exact signature:
+      returns <code>unsigned</code>, takes <code>void*</code>,
+      <code>__stdcall</code> calling convention. Why <code>void*</code>?
+      So you can pass arbitrary data into the thread — but we don't
+      use it here, hence the unnamed parameter.</p>
+
+      <p><code>__stdcall</code> is one of x86's calling conventions
+      — controls how arguments get passed (stack vs registers).
+      Win32 expects this. On x64 there's only one calling convention
+      so the keyword is ignored, but you keep it for portability.</p>
+
+      <h2>Resolving the module base</h2>
+      <pre><code>HMODULE hMod = GetModuleHandleA("ac_client.exe");
+if (!hMod) return 0;
+uintptr_t base = (uintptr_t)hMod;</code></pre>
+      <p><code>GetModuleHandleA</code> returns the base address of
+      a loaded module by name. It's NOT the same as
+      <code>LoadLibraryA</code> — that one would actually load a
+      DLL into the process. <code>GetModuleHandle</code> just looks
+      up something already loaded. The DLL is INSIDE
+      <code>ac_client.exe</code>'s process when injected, so the
+      EXE is loaded and queryable.</p>
+
+      <p>The 'A' suffix means ANSI strings (char*). 'W' would be
+      Unicode (wchar_t*). Modern code prefers W; A works fine for
+      ASCII-only strings.</p>
+
+      <p>The cast <code>(uintptr_t)hMod</code> reinterprets the
+      handle as an integer so we can do arithmetic on it.
+      <code>HMODULE</code> is technically a typedef for
+      <code>void*</code>, but on Windows it's also the literal
+      address where the module's loaded — coincidence the
+      community has exploited forever.</p>
+
+      <h2>The pointer chain dereference</h2>
+      <pre><code>uintptr_t player = *(uintptr_t*)(base + OFF_PLAYER_BASE);</code></pre>
+      <p>Reading right to left:</p>
+      <ol>
+        <li><code>base + OFF_PLAYER_BASE</code>: integer arithmetic.
+            Adds 0x10F4F4 to the module base. Result: the integer
+            value of the address where the static pointer lives.</li>
+        <li><code>(uintptr_t*)(...)</code>: cast to a pointer-to-
+            pointer-sized-int. We're saying "treat this address as
+            holding a pointer."</li>
+        <li><code>*(uintptr_t*)...</code>: dereference. Read the
+            pointer-sized value AT that address. This is the
+            actual player struct's address.</li>
+      </ol>
+      <p>One step of M08's pointer chain. If your trainer chains
+      deeper, you repeat: <code>uintptr_t weapon = *(uintptr_t*)(player + OFF_WEAPON);</code>
+      etc.</p>
+
+      <h2>The null guard</h2>
+      <pre><code>if (player) {</code></pre>
+      <p>Player struct can be NULL during map transitions or
+      between rounds. Writing through a null pointer crashes the
+      game — bad for the user, bad for stealth. Always guard.</p>
+
+      <h2>The actual write</h2>
+      <pre><code>*(int*)(player + OFF_HP) = 100;</code></pre>
+      <p>Same shape as the dereference, but on the LHS of an
+      assignment:</p>
+      <ol>
+        <li><code>player + OFF_HP</code>: address of the HP field.</li>
+        <li><code>(int*)...</code>: cast to int-pointer.</li>
+        <li><code>*(int*)... = 100</code>: write 4 bytes at that
+            address. Game's logic reads this cell every frame and
+            sees 100 forever.</li>
+      </ol>
+      <p>Why <code>int</code>? AC's HP field is 4 bytes, signed
+      int. If it were a float you'd cast to <code>float*</code>;
+      a byte to <code>char*</code>; etc. The cast tells the compiler
+      what to write.</p>
+
+      <h2>The throttle</h2>
+      <pre><code>Sleep(16);</code></pre>
+      <p>Yields the CPU for 16 milliseconds. Without it, the
+      <code>while (true)</code> would peg one core at 100%. 16ms ≈
+      60 ticks/sec, matching most game frame rates. Lower = more
+      reactive but more CPU; higher = less reactive but cheaper.</p>
+
+      <h2>DllMain — the entry point</h2>
+      <pre><code>BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID) {</code></pre>
+      <p>Windows calls this exact function name when your DLL is
+      loaded, unloaded, or threads attach/detach. Required.</p>
+      <p>The signature is fixed: <code>BOOL WINAPI</code> return,
+      <code>HINSTANCE</code> (handle to your own DLL),
+      <code>DWORD reason</code> (why DllMain is being called),
+      <code>LPVOID</code> (reserved, ignore).</p>
+
+      <pre><code>if (reason == DLL_PROCESS_ATTACH) {</code></pre>
+      <p>Reason can be:</p>
+      <ul>
+        <li><code>DLL_PROCESS_ATTACH</code> (1) — DLL just got loaded</li>
+        <li><code>DLL_PROCESS_DETACH</code> (0) — DLL is being unloaded</li>
+        <li><code>DLL_THREAD_ATTACH</code> (2) — a new thread started in the host process</li>
+        <li><code>DLL_THREAD_DETACH</code> (3) — a thread is exiting</li>
+      </ul>
+      <p>We only care about ATTACH for setup. DETACH for cleanup if
+      you have any. THREAD_ATTACH/DETACH usually fires constantly
+      and is noise.</p>
+
+      <pre><code>DisableThreadLibraryCalls(hInst);</code></pre>
+      <p>Tells Windows to STOP calling DllMain on every thread
+      attach/detach. Tiny perf optimization. Optional but standard.</p>
+
+      <pre><code>_beginthreadex(nullptr, 0, cheat_thread, nullptr, 0, nullptr);</code></pre>
+      <p>Spawns the cheat thread. Args:</p>
+      <ol>
+        <li><code>nullptr</code>: security descriptor (default).</li>
+        <li><code>0</code>: stack size (default ~1MB).</li>
+        <li><code>cheat_thread</code>: the function to run.</li>
+        <li><code>nullptr</code>: arg passed to that function.</li>
+        <li><code>0</code>: initial flags (0 = run immediately).</li>
+        <li><code>nullptr</code>: out param for thread ID — we don't care.</li>
+      </ol>
+      <p>Returns a thread handle. We don't store it because we never
+      need to wait on or kill the thread; it runs forever until the
+      process exits.</p>
+
+      <pre><code>return TRUE;</code></pre>
+      <p>Returning FALSE from DllMain on PROCESS_ATTACH causes
+      Windows to UNLOAD your DLL immediately. Always return TRUE
+      unless something failed catastrophically.</p>
+
+      <h2>What carries over to ANY game</h2>
+      <table style="width:100%; border-collapse:collapse; margin:0.5rem 0;">
+        <tr><th style="text-align:left;">Stays the same</th><th style="text-align:left;">Why</th></tr>
+        <tr><td>DllMain signature</td><td>Required by Windows for every DLL</td></tr>
+        <tr><td>DLL_PROCESS_ATTACH check</td><td>You always set up on attach</td></tr>
+        <tr><td>_beginthreadex pattern</td><td>Cheat thread architecture is universal</td></tr>
+        <tr><td>while(true) + Sleep(16)</td><td>60Hz tick is the standard</td></tr>
+        <tr><td><code>*(int*)(addr) = value</code> pattern</td><td>How you write memory in C++</td></tr>
+        <tr><td>uintptr_t for pointer math</td><td>Portability across 32/64-bit</td></tr>
+        <tr><td>Null guards</td><td>Pointers can be NULL during transitions</td></tr>
+      </table>
+
+      <h2>What changes per game</h2>
+      <table style="width:100%; border-collapse:collapse; margin:0.5rem 0;">
+        <tr><th style="text-align:left;">Changes</th><th style="text-align:left;">How to find</th></tr>
+        <tr><td>Module name ("ac_client.exe")</td><td>Task Manager / Process Explorer</td></tr>
+        <tr><td>Static base offset</td><td>CE pointer scan from a known dynamic address</td></tr>
+        <tr><td>Struct field offsets</td><td>CE struct browse, Find What Writes</td></tr>
+        <tr><td>Field types (int / float / etc)</td><td>Note the value type when scanning</td></tr>
+        <tr><td>Anti-cheat layers present</td><td>Game's own docs / community</td></tr>
+        <tr><td>Update cadence (rebuild frequency)</td><td>Game's patch history</td></tr>
+      </table>
+
+      <h2>Common variations</h2>
+      <ul>
+        <li><strong>32-bit vs 64-bit games</strong>:
+            <code>uintptr_t</code> auto-adapts. Build the DLL as
+            32-bit for 32-bit games, 64-bit for 64-bit. They aren't
+            interchangeable — wrong arch = LoadLibrary fails.</li>
+        <li><strong>Multiple weapons / inventory</strong>: extra
+            pointer chains. Each is one more
+            <code>*(uintptr_t*)(...)</code> dereference at the
+            top of cheat_thread.</li>
+        <li><strong>Float fields (position, rotation)</strong>:
+            cast to <code>float*</code> instead of <code>int*</code>.
+            <code>*(float*)(addr) = 1.5f;</code></li>
+        <li><strong>Multiple writes per tick</strong>: just stack
+            them inside the if-player block. Order doesn't matter.</li>
+        <li><strong>Conditional cheats</strong>: read a bool from
+            ImGui state (or your menu's globals) before each write.
+            <code>if (g_inf_hp) *(int*)(player + OFF_HP) = 100;</code></li>
+      </ul>
+
+      <h2>The 5-line minimum trainer</h2>
+      <p>If you stripped EVERY non-essential away:</p>
+      <pre><code>BOOL WINAPI DllMain(HINSTANCE, DWORD r, LPVOID) {
+    if (r != 1) return TRUE;
+    HMODULE m = GetModuleHandleA("ac_client.exe");
+    while (true) {
+        auto p = *(uintptr_t*)((uintptr_t)m + 0x10F4F4);
+        if (p) *(int*)(p + 0xEC) = 100;
+        Sleep(16);
+    }
+}</code></pre>
+      <p>That's a complete working AssaultCube god-mode trainer in
+      9 lines. The rest is hygiene + multi-feature support. Master
+      this skeleton — everything else is decoration.</p>
+    `,
+  },
+  {
     id: "trainer-resilience-aob",
     title: "AOB Pattern Scans — How Trainers Survive Game Updates",
     brief: "Why hardcoded offsets break and pattern scanning fixes it. The technique behind 'still works after the patch' trainers.",

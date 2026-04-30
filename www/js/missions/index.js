@@ -44,15 +44,23 @@ import { mission43 } from "./mission-43.js";
 import { mission44 } from "./mission-44.js";
 import { mission45 } from "./mission-45.js";
 import { mission46 } from "./mission-46.js";
+import { mission47 } from "./mission-47.js";
 
+// Display order. Mission file names stay as mission-NN.js for stability,
+// but the array position determines where each appears in the contracts
+// list (and which "M01..M47" badge is shown). We sometimes reorder to
+// put a teaching mission right after the one it builds on, even when
+// its file was added later. Internal IDs (m47 etc) never change, so
+// saved progress in localStorage is preserved across reorderings.
 export const MISSIONS = [
   mission01, mission02, mission03, mission04, mission05,
   mission06, mission07, mission08, mission09,
   mission10, mission11, mission12,
   mission13, mission14, mission15,
   mission16, mission17, mission18, mission19, mission20,
-  mission21, mission22, mission23, mission24, mission25,
-  mission26, mission27, mission28, mission29,
+  mission21, mission22, mission23, mission24,
+  mission47,    // DLL ANATOMY — taught here so M24's template makes sense
+  mission25, mission26, mission27, mission28, mission29,
   mission30, mission31, mission32,
   mission33, mission34, mission35, mission36,
   mission37, mission38, mission39, mission40,
