@@ -52,6 +52,10 @@ export class DllRuntime {
      *  IDirect3DDevice9::EndScene that draws extra geometry between
      *  the game's last draw call and the device's Present. */
     this.renderHooks = [];
+    /** Payload onTick functions registered via load_payload(). Each
+     *  fires alongside the parent's onTick every frame, so a
+     *  stager → payload chain just works. */
+    this._payloadTicks = [];
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -96,6 +100,50 @@ export class DllRuntime {
         }
         this.renderHooks.push(fn);
         this._emit();
+      },
+      // M27 STAGER — load a payload string as if it were a second DLL.
+      // The stager DLL's job is to bootstrap, then call this with the
+      // real cheat code (which can be embedded as a string literal,
+      // decoded from base64, downloaded from a URL, etc).
+      // Real-world equivalent: manual mapping a payload buffer, or
+      // calling LoadLibraryA on a decrypted DLL written to disk.
+      load_payload: (source) => {
+        if (typeof source !== "string" || source.length === 0) {
+          this.log("[load_payload] source must be a non-empty string");
+          return false;
+        }
+        try {
+          // Use the same factory wrapping as compile() so the payload
+          // sees the same API surface — recursion through register_*
+          // calls works (a payload can register cheats / render hooks).
+          const wrapped = `"use strict";\n${source}\nreturn {
+            onInject: typeof onInject === "function" ? onInject : null,
+            onTick:   typeof onTick   === "function" ? onTick   : null,
+          };`;
+          const factory = new Function(
+            "read", "write", "freeze", "unfreeze", "is_frozen",
+            "addr_of", "read_label", "write_label", "freeze_label",
+            "find_pointers_to", "log", "register_cheat",
+            "register_render_hook", "load_payload",
+            wrapped
+          );
+          const a = this._makeApi();
+          const payload = factory(
+            a.read, a.write, a.freeze, a.unfreeze, a.is_frozen,
+            a.addr_of, a.read_label, a.write_label, a.freeze_label,
+            a.find_pointers_to, a.log, a.register_cheat,
+            a.register_render_hook, a.load_payload
+          );
+          // Fire the payload's onInject immediately. Schedule onTick
+          // alongside the parent's onTick by appending to a list.
+          if (payload.onInject) payload.onInject();
+          if (payload.onTick) this._payloadTicks.push(payload.onTick);
+          this.log("[load_payload] payload loaded — " + (payload.onTick ? "onTick scheduled" : "init only"));
+          return true;
+        } catch (e) {
+          this.log("[load_payload error] " + e.message);
+          return false;
+        }
       },
       // M23 — register a cheat in the in-game menu. The menu pops up
       // on DELETE key (or the menu button). Checked cheats invoke
@@ -152,7 +200,7 @@ return {
         "read", "write", "freeze", "unfreeze", "is_frozen",
         "addr_of", "read_label", "write_label", "freeze_label",
         "find_pointers_to", "log", "register_cheat",
-        "register_render_hook",
+        "register_render_hook", "load_payload",
         wrapped
       );
     } catch (e) {
@@ -165,7 +213,7 @@ return {
         a.read, a.write, a.freeze, a.unfreeze, a.is_frozen,
         a.addr_of, a.read_label, a.write_label, a.freeze_label,
         a.find_pointers_to, a.log, a.register_cheat,
-        a.register_render_hook
+        a.register_render_hook, a.load_payload
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
@@ -222,6 +270,15 @@ return {
           this._emit();
         }
       }
+      // Run any payload onTick functions loaded via load_payload().
+      for (const t of this._payloadTicks) {
+        try { t(); }
+        catch (e) {
+          this.log("[payload tick error] " + e.message + " — payload removed");
+          // Remove the broken tick to avoid spamming.
+          this._payloadTicks = this._payloadTicks.filter(x => x !== t);
+        }
+      }
       this._rafId = requestAnimationFrame(loop);
     };
     this._rafId = requestAnimationFrame(loop);
@@ -234,8 +291,9 @@ return {
     this.running = false;
     if (this._rafId) cancelAnimationFrame(this._rafId);
     this._rafId = 0;
-    this.cheats = [];        // clear registered cheats — re-inject re-registers
-    this.renderHooks = [];   // clear render hooks
+    this.cheats = [];           // clear registered cheats — re-inject re-registers
+    this.renderHooks = [];      // clear render hooks
+    this._payloadTicks = [];    // clear payload tick functions
     this.log("DLL ejected");
     this._emit();
   }

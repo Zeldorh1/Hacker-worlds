@@ -6,6 +6,158 @@
 
 const ARTICLES = [
   {
+    id: "ac-offsets-cheat-sheet",
+    title: "AssaultCube Offsets — The Reference Sheet",
+    brief: "The hardcoded numbers your trainer needs. Public, stable, copy into your .cpp.",
+    body: `
+      <h2>The single most useful page in this codex</h2>
+      <p>Every trainer for AssaultCube hardcodes the same handful of
+      offsets. They've been stable across the game's lifetime
+      (1.2.0.2 has been the public version for years). These are
+      documented on every public AC hacking tutorial — gamehacking.academy,
+      GuidedHacking, UnknownCheats. Reproduced here so you don't have
+      to leave the app to find them.</p>
+
+      <h2>Module + base pointer</h2>
+      <pre><code>HMODULE hMod = GetModuleHandleA("ac_client.exe");
+uintptr_t base = (uintptr_t)hMod;
+
+// The local player struct pointer:
+uintptr_t player_base = *(uintptr_t*)(base + 0x10F4F4);</code></pre>
+
+      <p><strong>0x10F4F4</strong> is the static offset from
+      <code>ac_client.exe</code> to a pointer that holds the address
+      of your local player struct. Read 4 bytes there, you've got
+      the struct base. Re-read each frame — the struct can relocate
+      across map changes.</p>
+
+      <h2>Local player struct fields</h2>
+      <table style="width:100%; border-collapse:collapse; margin: 0.5rem 0;">
+        <tr><th style="text-align:left;">Field</th><th style="text-align:left;">Offset</th><th style="text-align:left;">Type</th></tr>
+        <tr><td>position x</td><td><code>+0x4</code></td><td>float</td></tr>
+        <tr><td>position z</td><td><code>+0x8</code></td><td>float (vertical in AC)</td></tr>
+        <tr><td>position y</td><td><code>+0xC</code></td><td>float</td></tr>
+        <tr><td>velocity</td><td><code>+0x28..0x30</code></td><td>3 floats</td></tr>
+        <tr><td>view yaw</td><td><code>+0x34</code></td><td>float</td></tr>
+        <tr><td>view pitch</td><td><code>+0x38</code></td><td>float</td></tr>
+        <tr><td><strong>HP</strong></td><td><code>+0xEC</code></td><td>int</td></tr>
+        <tr><td>armor</td><td><code>+0xF0</code></td><td>int</td></tr>
+        <tr><td><strong>ammo (current weapon)</strong></td><td><code>+0x140</code></td><td>int</td></tr>
+        <tr><td>weapon id</td><td><code>+0x374</code></td><td>int</td></tr>
+        <tr><td>team</td><td><code>+0x32C</code></td><td>int (0/1)</td></tr>
+        <tr><td>name</td><td><code>+0x205</code></td><td>char[16]</td></tr>
+      </table>
+
+      <p>Note: AC's coordinate convention is X-Z-horizontal, Y-vertical
+      (typical for old idTech-derived engines). When you do
+      world-to-screen, x and y are the floor plane, z is height.</p>
+
+      <h2>Enemy enumeration</h2>
+      <pre><code>uint32_t numplayers = *(uint32_t*)(base + 0x10F500);
+Player** enemies   = *(Player***)(base + 0x10F4F8);
+
+for (uint32_t i = 0; i < numplayers; i++) {
+    Player* p = enemies[i];
+    if (!p) continue;
+    int hp = *(int*)((uintptr_t)p + 0xEC);
+    if (hp <= 0) continue;
+    // ESP / aimbot logic for this enemy
+}</code></pre>
+
+      <p><strong>0x10F500</strong> = enemy count (uint32). <strong>0x10F4F8</strong> =
+      pointer to an array of <code>Player*</code> pointers. The array
+      itself can relocate; re-read each frame.</p>
+
+      <h2>View matrix (for world-to-screen)</h2>
+      <p>D3DXVec3Project needs the view × projection matrix. AC keeps
+      it at:</p>
+      <pre><code>float* viewProj = (float*)(base + 0x17DFD0);
+// 4x4 matrix in row-major order, 16 floats</code></pre>
+
+      <p>Pass that to <code>D3DXVec3Project</code> when projecting
+      enemy world coords to screen pixels for ESP. See the Codex
+      'Render Hooking' article for the call shape.</p>
+
+      <h2>Weapon descriptor</h2>
+      <pre><code>uintptr_t weapon_ptr = *(uintptr_t*)(player_base + 0x374);
+// Inside the weapon struct:
+//   damage:      *(int*)(weapon_ptr + 0x18)   (varies by weapon kind)
+//   reload time: *(int*)(weapon_ptr + 0x14)
+//   recoil:      *(float*)(weapon_ptr + 0x60)</code></pre>
+
+      <p>Weapon offsets vary slightly per weapon type. The pattern
+      M17 taught (player → currentWeapon pointer → weapon stats) maps
+      directly to <code>+0x374</code> in AC.</p>
+
+      <h2>Putting it together — minimal C++ trainer skeleton</h2>
+      <pre><code>#include &lt;windows.h&gt;
+#include &lt;process.h&gt;
+
+unsigned __stdcall cheat_thread(void*) {
+    HMODULE hMod = GetModuleHandleA("ac_client.exe");
+    uintptr_t base = (uintptr_t)hMod;
+
+    while (true) {
+        uintptr_t pb = *(uintptr_t*)(base + 0x10F4F4);
+        if (pb) {
+            *(int*)(pb + 0xEC)  = 100;   // HP
+            *(int*)(pb + 0xF0)  = 100;   // armor
+            *(int*)(pb + 0x140) = 99;    // ammo
+        }
+        Sleep(16);
+    }
+}
+
+BOOL WINAPI DllMain(HINSTANCE h, DWORD r, LPVOID) {
+    if (r == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(h);
+        _beginthreadex(nullptr, 0, cheat_thread, nullptr, 0, nullptr);
+    }
+    return TRUE;
+}</code></pre>
+
+      <p>That's a working AC trainer. ~30 lines. Build as a DLL,
+      inject, ac_client gets infinite HP/armor/ammo. The M29 Export
+      button generates a more complete version with cheat menu wiring
+      + render hook scaffolding.</p>
+
+      <h2>Building in Visual Studio</h2>
+      <ol>
+        <li>VS 2017+ → New Project → C++ → Empty Project</li>
+        <li>Project Properties → General → Configuration Type → <strong>Dynamic Library (.dll)</strong></li>
+        <li>Project Properties → C/C++ → Code Generation → Runtime Library → <strong>/MT</strong> (static CRT, no msvcr*.dll dependency)</li>
+        <li>Configuration → <strong>Win32</strong> (NOT x64 — AC is 32-bit)</li>
+        <li>Drop the .cpp in Source Files</li>
+        <li>Build → output is in <code>Release\\YourProject.dll</code></li>
+        <li>Inject with any standard injector</li>
+      </ol>
+
+      <h2>Validating the offsets are still right</h2>
+      <p>If your trainer compiles but does nothing, the offsets may
+      have drifted (very unlikely for AC 1.2.0.2 which is frozen,
+      but worth knowing the workflow):</p>
+      <ol>
+        <li>Open AC, attach Cheat Engine.</li>
+        <li>Find your HP via scan. Right-click → "Find what writes."</li>
+        <li>Take damage. CE shows the assembly. Note the base register +
+            offset. That offset is your real <code>OFF_HP</code>.</li>
+        <li>Compare against this article. Update if drifted.</li>
+      </ol>
+
+      <p>Then for the static base: in CE's pointer scan on your HP
+      address, the result that resolves to
+      <code>ac_client.exe + something</code> is your
+      <code>OFF_PLAYER_BASE_PTR</code>. Done.</p>
+
+      <h2>Why these are safe to share</h2>
+      <p>AssaultCube is open-source. The source code itself shows
+      where these struct fields are defined. Anyone with five minutes
+      and a copy of the AC repo can derive these offsets. They've been
+      public material in the game-hacking education community for over
+      a decade.</p>
+    `,
+  },
+  {
     id: "render-hooking",
     title: "Render Hooking — Drawing on the Game's Frame",
     brief: "Hook EndScene, get the device, draw your overlay. The technique behind every wallhack and ESP that survives 'don't draw enemies' flag freezes.",

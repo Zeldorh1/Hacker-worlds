@@ -16,6 +16,7 @@ import { audio }       from "./audio.js";
 import { MISSIONS_BY_ID } from "./missions/index.js";
 import { missionState }   from "./mission-state.js";
 import { dllRuntime }     from "./dll.js";
+import { exportToCpp }    from "./cpp-export.js";
 
 function setupTabs() {
   const tabs = document.querySelectorAll(".tab");
@@ -159,6 +160,18 @@ function setupDllEditor() {
     setStatus("ejected", "");
     renderConsole();
   });
+  // M35 Export → C++ : translate the sim DLL into AC-targeting C++.
+  const $export = document.getElementById("btn-dll-export");
+  if ($export) {
+    $export.addEventListener("click", () => {
+      const cpp = exportToCpp($code.value);
+      // Drop the result into the console panel so it's copyable on
+      // mobile and visible without a download dialog.
+      $console.textContent = cpp;
+      $console.scrollTop = 0;
+      setStatus("exported — scroll down for the .cpp file", "ok");
+    });
+  }
   // Subscribe to runtime events so console updates live.
   dllRuntime.on(() => renderConsole());
 }
@@ -434,6 +447,8 @@ async function boot() {
     const $tabDll = document.getElementById("tab-dll");
     const $dllCode = document.getElementById("dll-code");
     if ($tabDll) $tabDll.hidden = !m.dll;
+    const $exportBtn = document.getElementById("btn-dll-export");
+    if ($exportBtn) $exportBtn.hidden = !m.cppExport;
     if (m.dll && $dllCode) {
       // M25 AUTO-INJECT: prefer the player's last-compiled source
       // (persisted on every successful compile). Falls back to the
