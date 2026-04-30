@@ -1,41 +1,44 @@
 // Mission 12 — SPEED HACK
 //
-// The player's movement cooldown is an int (ms between tiles). Default
-// 110ms — about 9 tiles/sec. Find it, freeze it low (40 or less), feel
-// the speed difference, traverse 30 tiles to confirm.
+// The player's movement cooldown is an int (ms between tiles). The
+// game does NOT display this number anywhere — that's the lesson.
+// In real Cheat Engine, hidden stats like move speed, accel, rotation
+// rate are found via 'Unknown Initial Value' first scan + filter
+// cycles, not by typing a magic number you somehow already know.
 //
 // Real game equivalent: speed multiplier or move-cooldown in player
 // struct. Often a float, often guarded — but the core technique
-// (scan-narrow-freeze) is identical.
+// (scan unknown, narrow with unchanged, trial-and-error) is identical.
 
 import { memory } from "../sim-memory.js";
 
 export const mission12 = {
   id: "m12",
   title: "SPEED HACK",
-  brief: "Slash the movement cooldown. Cover 30 tiles like nothing.",
+  brief: "Find a stat the HUD won't show you. Crank movement, cover 30 tiles.",
   prerequisites: ["m11"],
-  timeLimit: 180,
+  timeLimit: 200,
 
   hints: [
     {
-      id: "scan-cooldown",
+      id: "unknown-first",
       min: 14,
       when: ({ scannerState }) => scannerState.lastResults === null,
-      say: "The move cooldown is 110ms — a plain int. SCANNER → First Scan 110. There'll be a few hundred matches; ints in that range are noisy.",
+      say: "Move speed isn't on the HUD — you don't know the number. Scanner → set Scan to 'Unknown Initial Value' → First Scan. That snapshots every cell. We'll narrow with filters from here.",
     },
     {
-      id: "narrow-by-walking",
-      min: 5,
+      id: "filter-unchanged",
+      min: 6,
       when: ({ scannerState }) =>
-        scannerState.lastResults && scannerState.lastResults.length > 5,
-      say: "Walk around. The cooldown cell is 'unchanged' — mode unchanged + Next Scan strips out the fluctuating noise. Repeat 2-3 times.",
+        scannerState.lastResults && scannerState.lastResults.length > 50,
+      say: "Walk around for a few seconds. Lots of cells are noise that drift. Set filter to 'unchanged' → Next Scan. The speed cell stays put while noise gets dropped. Repeat 3-4 times.",
     },
     {
-      id: "watch-and-edit",
+      id: "trial-and-error",
+      min: 4,
       when: ({ scannerState, watchSize }) =>
-        scannerState.lastResults && scannerState.lastResults.length <= 6 && watchSize < 4,
-      say: "Down to a handful. '+ watch' the survivors. Edit each to 30. Whichever one makes you feel like the Flash is your cell. Unfreeze the wrong ones.",
+        scannerState.lastResults && scannerState.lastResults.length <= 8 && watchSize < 4,
+      say: "Down to a handful. '+ watch' the candidates. Edit each value to 30 — only the speed cell will actually make you faster. Wrong cells do nothing. Freeze the right one.",
     },
     {
       id: "speedrun",
@@ -46,14 +49,15 @@ export const mission12 = {
 
   start({ dialog, target, complete }) {
     target.reset();
-    // No enemies here — pure movement drill, the room becomes a track.
-    target.enableEnemies();   // give them targets to dodge but no weapon
+    target.enableEnemies();   // give them targets to dodge
     target.tilesMoved = 0;
 
     dialog.script("VEX", [
-      "Speed stat. Move cooldown is 110ms per tile. Bring it under 80 and the world feels different.",
-      "Scan 110. Narrow by walking + filter 'unchanged'. Watch the survivors, edit each to 30 — only the right one will actually speed you up.",
-      "Once it's frozen low, traverse 30 tiles to commit. Speed hacks live in the same place as ammo and damage — just another int.",
+      "Different beast this one. Movement speed isn't displayed — no HUD readout, no obvious starting number.",
+      "Workflow: Scanner → Scan dropdown → 'Unknown Initial Value' → First Scan. That captures every cell as-is.",
+      "Walk around. Filter 'unchanged' + Next Scan, a few times over. Stable cells survive (the speed stat is one); noise gets shaken out.",
+      "Trial-and-error the survivors: edit each to a low number, see which one makes you visibly faster. Freeze it. Then traverse 30 tiles.",
+      "This is the workflow for every hidden stat in real games — speed, recoil, jump height, rotation rate.",
     ]);
 
     let done = false;
@@ -71,7 +75,7 @@ export const mission12 = {
       }
       if (tilesAtLowCooldown >= 0 && target.tilesMoved - tilesAtLowCooldown >= 30) {
         done = true;
-        complete("Thirty tiles flat-out. Speed stats are just ints in a player struct.");
+        complete("Thirty tiles flat-out. Hidden stats fall to Unknown Initial Value + a few filter passes.");
         clearInterval(interval);
       }
     }, 200);

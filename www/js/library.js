@@ -6,6 +6,95 @@
 
 const ARTICLES = [
   {
+    id: "unknown-initial-value",
+    title: "When You Don't Know the Number",
+    brief: "The Unknown Initial Value workflow — for stats the game refuses to show you.",
+    body: `
+      <h2>The realistic case</h2>
+      <p>Most game stats <em>aren't</em> on the HUD. Health, ammo, score —
+      sure, those are visible. But move speed, recoil decay, jump height,
+      bullet velocity, hitbox size, gravity, tick rate, animation speed?
+      The game holds those values somewhere in memory, reads them every
+      frame, and never tells you the number.</p>
+
+      <p>You can't scan for "320" if you don't know the cooldown is 320ms.
+      So how does anyone find these cells?</p>
+
+      <h2>Unknown Initial Value</h2>
+      <p>Cheat Engine has a scan type called <strong>Unknown Initial Value</strong>.
+      In this app it's the second option in the Scan dropdown. When you First
+      Scan with it, CE doesn't filter — it snapshots <em>every cell</em> in
+      the scanned region (millions of cells in a real process). Each cell's
+      current value is recorded.</p>
+
+      <p>That snapshot is your starting point. From there, every Next Scan
+      uses one of these comparisons against the snapshot:</p>
+
+      <ul>
+        <li><strong>Unchanged</strong> — value still equals the snapshot.</li>
+        <li><strong>Changed</strong> — value differs from the snapshot.</li>
+        <li><strong>Increased</strong> — value is now greater than the snapshot.</li>
+        <li><strong>Decreased</strong> — value is now less.</li>
+        <li><strong>Increased by N</strong> / <strong>Decreased by N</strong> —
+            value is now snapshot ± a specific delta.</li>
+      </ul>
+
+      <p>You drive narrowing by <em>causing the cell to change in a known way.</em>
+      The game's logic does the rest.</p>
+
+      <h2>Three workflows by stat type</h2>
+
+      <h3>Stable stat (M12 / M14 — speed, fire-rate)</h3>
+      <p>The cell's value stays put while you walk around. Noise cells around
+      it drift constantly. Scan unknown → wait → filter <em>unchanged</em>. Each
+      pass strips a few thousand drifters. After 3-4 cycles you're down to a
+      short list of stable cells; trial-and-error edit until you find the
+      one that changes the game's behavior.</p>
+
+      <h3>Monotonic stat (HP-on-bleed, score)</h3>
+      <p>The cell only ever decreases (HP draining) or only increases (kill
+      score). Scan unknown → wait → filter <em>decreased</em>. Cells that
+      randomly fluctuated up at any point are dropped instantly.</p>
+
+      <h3>Two-state stat (toggles, render flags)</h3>
+      <p>Boolean-ish cells flip between exactly two values (often 0 and 1).
+      Scan for 0, narrow with <em>unchanged</em> while time passes; the cell
+      stays 0 with the rest of the static zeros. Trial-and-error the survivors
+      with edits to 1.</p>
+
+      <h2>Why this is more powerful than direct scans</h2>
+      <p>Direct scans require you to know <em>and trust</em> the displayed
+      number. Unknown Initial Value lets you find a cell whose value is:</p>
+      <ul>
+        <li>Encoded (XOR, shifted, multiplied)</li>
+        <li>A different type than you expected (game stores HP as float in [0,1])</li>
+        <li>Quantized differently (1/3 of displayed, 2x stored)</li>
+      </ul>
+
+      <p>Because you never reference the actual number — only its <em>change
+      behavior</em> — encoding doesn't matter.</p>
+
+      <h2>Common gotchas</h2>
+      <ul>
+        <li><strong>Filter too aggressively too early.</strong> If your first
+            'unchanged' filter comes too soon, noise cells haven't drifted yet
+            and they'll be retained. Wait at least 2-3 seconds between
+            unchanged passes for the random-drift cells to differ.</li>
+        <li><strong>Pause the game before scanning.</strong> If the cell you
+            want is changing right when you scan, your filter might exclude
+            it. Pause, scan, unpause, repeat.</li>
+        <li><strong>Trust the trial-and-error.</strong> The final list is
+            usually 3-10 candidates. Editing each is faster than another
+            filter pass — and the visible feedback (game changes) tells you
+            instantly which is right.</li>
+      </ul>
+
+      <p>Once you internalise this, you'll find yourself reaching for
+      Unknown Initial Value <em>first</em> on most scans, even when the
+      number is on screen. It's the more general tool.</p>
+    `,
+  },
+  {
     id: "render-flags",
     title: "Wallhacks Are Just Boolean Flips",
     brief: "Why visual cheats are usually the easiest hack you'll ever write.",
