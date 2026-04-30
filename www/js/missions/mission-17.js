@@ -57,14 +57,27 @@ export const mission17 = {
       when: ({ target }) =>
         target.weapon.recoilPerShot !== 0 &&
         !memory.isFrozen(memory.addressOfLabel("weapon.recoilPerShot")),
-      say: "Got it watched? Edit its value to 0 and tick freeze. Now the recoil tracker can't climb — sustained fire stays accurate.",
+      say: "Got it watched? Edit its value to 0 FIRST (tap the value field, type 0, hit Enter). THEN tick freeze. Order matters — freeze locks whatever value is in the cell at that moment.",
     },
     {
       id: "finish-the-room",
       when: ({ target }) =>
         memory.isFrozen(memory.addressOfLabel("weapon.recoilPerShot")) &&
+        target.weapon.recoilPerShot === 0 &&
         target.killCount < 4,
-      say: "Recoil locked. Spray-clear the room — all four contacts.",
+      say: "Recoil locked at 0. Spray-clear the room — all four contacts. Win check needs killCount >= 4.",
+    },
+    {
+      id: "still-not-winning",
+      when: ({ target }) => target.killCount >= 4,
+      say: () => {
+        const addr = memory.addressOfLabel("weapon.recoilPerShot");
+        const frozen = memory.isFrozen(addr);
+        const val = memory.read(addr);
+        if (!frozen) return `4 kills landed but recoil cell isn't frozen. Check your watchlist — make sure the entry at the weapon struct's +0x08 (the cell with value ${val}) has its freeze checkbox ticked.`;
+        if (val !== 0) return `4 kills + freeze ticked, but recoil is frozen at ${val}, not 0. Untick freeze, edit value to 0, re-tick freeze. Win check needs val === 0 specifically.`;
+        return "4 kills + recoil frozen at 0 — win should be firing any moment.";
+      },
     },
   ],
 
