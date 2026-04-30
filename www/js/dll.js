@@ -82,6 +82,11 @@ export class DllRuntime {
     /** IsDebuggerPresent hooks — fn(detected) → boolean.
      *  M46 uses these to lie about debugger presence. */
     this.isDebuggerHooks = [];
+    /** Frame-audit hooks — fn(frame) → frame. Called when the AC's
+     *  out-of-pipeline frame capture fires. frame = {espActive,
+     *  renderHookCount}. Scrub the values to hide your overlay.
+     *  M49 teaches this pattern (DXGI / kernel GPU sampler bypass). */
+    this.frameAuditHooks = [];
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -167,6 +172,20 @@ export class DllRuntime {
           return;
         }
         this.isDebuggerHooks.push(fn);
+        this._emit();
+      },
+      // M49 — hook the AC's out-of-pipeline frame capture. fn receives
+      // a frame descriptor {espActive, renderHookCount} and should
+      // return a scrubbed version with those fields zeroed to hide the
+      // overlay from the AC's GPU sampler. Real-world equivalent:
+      // hooking DXGI IDXGIOutputDuplication::AcquireNextFrame or
+      // the kernel-mode GPU capture path before the AC reads the buffer.
+      register_frame_audit_hook: (fn) => {
+        if (typeof fn !== "function") {
+          this.log("[register_frame_audit_hook] fn must be a function");
+          return;
+        }
+        this.frameAuditHooks.push(fn);
         this._emit();
       },
       // M44 — scan memory for a sequence of consecutive int values
@@ -266,7 +285,7 @@ export class DllRuntime {
             "register_render_hook", "register_packet_hook", "load_payload",
             "inject_packet", "register_input_hook", "compute_hmac",
         "register_proc_enum_hook", "register_module_enum_hook",
-        "register_isdebugger_hook", "find_pattern",
+        "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
             wrapped
           );
           const a = this._makeApi();
@@ -277,7 +296,7 @@ export class DllRuntime {
             a.register_render_hook, a.register_packet_hook, a.load_payload,
             a.inject_packet, a.register_input_hook, a.compute_hmac,
         a.register_proc_enum_hook, a.register_module_enum_hook,
-        a.register_isdebugger_hook, a.find_pattern
+        a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -348,7 +367,7 @@ return {
         "register_render_hook", "register_packet_hook", "load_payload",
         "inject_packet", "register_input_hook", "compute_hmac",
         "register_proc_enum_hook", "register_module_enum_hook",
-        "register_isdebugger_hook", "find_pattern",
+        "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
         wrapped
       );
     } catch (e) {
@@ -364,7 +383,7 @@ return {
         a.register_render_hook, a.register_packet_hook, a.load_payload,
         a.inject_packet, a.register_input_hook, a.compute_hmac,
         a.register_proc_enum_hook, a.register_module_enum_hook,
-        a.register_isdebugger_hook, a.find_pattern
+        a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
@@ -450,6 +469,7 @@ return {
     this.processEnumHooks = []; // clear proc-enum hooks
     this.moduleEnumHooks = [];  // clear module-enum hooks
     this.isDebuggerHooks = [];  // clear isdebugger hooks
+    this.frameAuditHooks = []; // clear frame-audit hooks
     this.log("DLL ejected");
     this._emit();
   }

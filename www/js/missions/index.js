@@ -46,6 +46,7 @@ import { mission45 } from "./mission-45.js";
 import { mission46 } from "./mission-46.js";
 import { mission47 } from "./mission-47.js";
 import { mission48 } from "./mission-48.js";
+import { mission49 } from "./mission-49.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
@@ -67,6 +68,7 @@ export const MISSIONS = [
   mission30, mission31, mission32,
   mission33, mission34, mission35, mission36,
   mission37, mission38, mission39, mission40,
+  mission49,    // OUT-OF-PIPELINE ESP — GPU framebuffer capture bypass, follows spectator detection
   mission41, mission42, mission43, mission44, mission45, mission46,
 ];
 export const MISSIONS_BY_ID = Object.fromEntries(MISSIONS.map(m => [m.id, m]));

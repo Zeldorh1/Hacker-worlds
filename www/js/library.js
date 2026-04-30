@@ -3605,6 +3605,128 @@ result = read32(addr + o₄)</code></pre>
       on each intermediate result.</p>
     `,
   },
+
+  {
+    id: "out-of-pipeline-esp",
+    title: "Out-of-Pipeline ESP Detection — GPU Framebuffer Capture",
+    brief: "Why EndScene hooks don't hide from DXGI/kernel capture, and how to hook the capture itself.",
+    body: `
+      <h2>The layer your render hook can't touch</h2>
+      <p>M26 taught EndScene hooking: your code runs inside
+      <code>IDirect3DDevice9::EndScene</code>, draws boxes, returns. The game's
+      D3D9 runtime then calls <code>Present</code> and the frame hits the screen.
+      Everything is within the game process, within the D3D9 device. Your hook
+      owns that layer completely — the game can't stop you there.</p>
+
+      <p>Modern anti-cheats don't care about what happens inside <code>EndScene</code>.
+      They sample the final composed GPU output from a different layer entirely.</p>
+
+      <h2>How DXGI Desktop Duplication works</h2>
+      <p>Windows 8+ exposes <strong>IDXGIOutputDuplication</strong> — a DXGI
+      interface that lets any process with sufficient privilege capture every frame
+      the GPU outputs to a monitor. The key detail: it captures <em>after composition</em>.
+      Your EndScene overlay is already baked into the texture it reads.</p>
+
+      <pre><code>// Anti-cheat capture pseudo-code
+IDXGIOutput1* output = ...;
+IDXGIOutputDuplication* dup;
+output->DuplicateOutput(device, &amp;dup);
+
+// Every N seconds:
+DXGI_OUTDUPL_FRAME_INFO info;
+IDXGIResource* frame;
+dup->AcquireNextFrame(500, &amp;info, &amp;frame);
+// frame now contains the full composed GPU output —
+// your EndScene boxes are in here.
+analyze_for_overlays(frame);
+dup->ReleaseFrame();</code></pre>
+
+      <h2>Kernel-mode GPU sampling</h2>
+      <p>Vanguard and similar drivers go even further: they capture the GPU output
+      at <strong>Ring-0</strong> via DirectX kernel-mode driver (dxgkrnl.sys) interfaces.
+      No user-mode hook can intercept a Ring-0 GPU read without a kernel driver of
+      your own. That's the arms race that leads to BYOVD (Bring Your Own Vulnerable
+      Driver) exploitation — load a signed-but-exploitable driver, use it to elevate
+      to Ring-0, then hook the capture from there.</p>
+
+      <h2>The user-mode bypass: hook AcquireNextFrame</h2>
+      <p>Against ACs that use DXGI Desktop Duplication from user-mode (not kernel),
+      the bypass is straightforward: hook <code>IDXGIOutputDuplication::AcquireNextFrame</code>
+      in the AC's process. When it fires, return a pre-cached clean frame — one you
+      captured before your overlay was drawn.</p>
+
+      <pre><code>// Conceptual bypass
+IDXGIOutputDuplication* orig_dup = ...; // real capture object
+// Your hook:
+HRESULT HOOKED_AcquireNextFrame(UINT ms, ..., IDXGIResource** ppRes) {
+  // Return the frame you saved before drawing the ESP.
+  *ppRes = clean_frame_cached_before_esp_draw;
+  return S_OK;
+}</code></pre>
+
+      <p>In the simulator this is <code>register_frame_audit_hook(fn)</code>.
+      The AC calls its capture routine, your hook fires first, you zero out
+      <code>espActive</code> and <code>renderHookCount</code> in the frame
+      descriptor, and the AC's pattern-matcher sees a clean game world.</p>
+
+      <h2>The external overlay alternative</h2>
+      <p>If the AC uses kernel-mode capture (Ring-0), you can't hook it without
+      your own kernel driver. The alternative: don't draw inside the game's render
+      target at all. Instead, create a transparent <strong>WS_EX_LAYERED</strong>
+      window positioned on top of the game and draw your ESP there via GDI or a
+      separate D3D11 device on the same adapter.</p>
+
+      <p>The framebuffer capture only samples the game's render target —
+      your overlay window is a separate composited layer. The AC's GPU sample
+      won't contain your boxes.</p>
+
+      <p><strong>Tradeoff:</strong> external overlays are detectable via window
+      enumeration (<code>EnumWindows</code>, <code>FindWindowEx</code>). The AC
+      can look for transparent top-most windows over the game's HWND. That's
+      the detection vector M45 addresses from the module-hiding angle. You've
+      traded one detection surface for another.</p>
+
+      <h2>Detection vs bypass: the arms race here</h2>
+      <table>
+        <thead><tr><th>AC technique</th><th>Cheat bypass</th><th>Next AC move</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>DXGI Desktop Duplication (user-mode)</td>
+            <td>Hook AcquireNextFrame, return clean frame</td>
+            <td>Move capture to kernel (Ring-0)</td>
+          </tr>
+          <tr>
+            <td>Kernel GPU capture (Ring-0)</td>
+            <td>External overlay window (WS_EX_LAYERED)</td>
+            <td>EnumWindows + window class / title scan</td>
+          </tr>
+          <tr>
+            <td>EnumWindows over game window</td>
+            <td>Hook EnumWindows, filter own window</td>
+            <td>Kernel NtUserBuildHwndList (Ring-0 window enum)</td>
+          </tr>
+          <tr>
+            <td>Kernel window enumeration</td>
+            <td>Render via kernel-mode display driver</td>
+            <td>Hardware integrity measurement (TPM / hypervisor)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>Each layer of bypass pushes both sides deeper into the operating system.
+      The current state of the art (2024) has Riot Vanguard and Valorant's AC
+      operating at the hypervisor layer — snapshotting guest memory from outside
+      the OS entirely. Cheats at that tier require hypervisor escapes or physical
+      hardware modifications.</p>
+
+      <h2>What the simulator teaches</h2>
+      <p>The simulator's <code>frameAudit</code> system fires on a <em>jittered</em>
+      timer (base 4s ± 2s random). You cannot reliably time your ESP to vanish
+      during the exact capture window — the jitter makes that impractical. The
+      only reliable bypass is the hook: intercept the capture function itself and
+      hand back a sanitized result. That's the lesson M49 drills.</p>
+    `,
+  },
 ];
 
 export class Library {

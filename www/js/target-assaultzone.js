@@ -215,6 +215,24 @@ export class AssaultZone {
       threshold: 3,
     };
 
+    // M49 — out-of-pipeline frame-audit. The AC periodically "captures"
+    // the rendered frame from outside the game's render pipeline (DXGI
+    // DesktopDuplication / kernel GPU sampler equivalent). It checks for
+    // render hooks and esp activity. Any DLL-registered frame_audit_hook
+    // can intercept the capture object and scrub it before the AC reads.
+    // Bypass: register_frame_audit_hook(fn) where fn(frame) → frame.
+    this.frameAudit = {
+      enabled: false,
+      // Interval has jitter to make timing-based bypass harder.
+      baseIntervalMs: 4000,
+      jitterMs: 2000,
+      nextAuditAt: 0,
+      detections: 0,
+      threshold: 3,
+      lastDetectedAt: 0,
+      auditing: false,   // true during the brief capture window
+    };
+
     // M33 — behavioral detector. Tracks recent crosshair-target
     // changes. Bots that snap to a new target every frame (zero
     // reaction delay) generate a stream of instant changes that
@@ -572,6 +590,10 @@ export class AssaultZone {
     this.moduleShield.detections = 0;
     this.debugger.enabled = false;
     this.debugger.detections = 0;
+    this.frameAudit.enabled = false;
+    this.frameAudit.detections = 0;
+    this.frameAudit.auditing = false;
+    this.frameAudit.nextAuditAt = 0;
     this.player.noClip = 0;
     memory.setFrozen(this.addrPlayerNoClip, false);
     this.behavioral.enabled = false;
@@ -738,6 +760,18 @@ export class AssaultZone {
     this.debugger.lastScanAt = performance.now();
   }
   disableDebuggerCheck() { this.debugger.enabled = false; }
+
+  // M49 — out-of-pipeline frame audit. Fires on a jittered timer so
+  // a simple Sleep-based bypass isn't reliable.
+  enableFrameAudit() {
+    this.frameAudit.enabled = true;
+    this.frameAudit.detections = 0;
+    this.frameAudit.auditing = false;
+    const now = performance.now();
+    const jitter = (Math.random() - 0.5) * this.frameAudit.jitterMs;
+    this.frameAudit.nextAuditAt = now + this.frameAudit.baseIntervalMs + jitter;
+  }
+  disableFrameAudit() { this.frameAudit.enabled = false; }
 
   // M40 — periodically simulate a spectator joining/leaving.
   // Emits 'spectator_joined' / 'spectator_left' recv packets.
@@ -1219,6 +1253,49 @@ export class AssaultZone {
       this.cheatShield.lastDetectedFingerprints = hits.map(p => p.fingerprint || p.name);
       if (hits.length > 0) this.cheatShield.detections++;
       else this.cheatShield.detections = Math.max(0, this.cheatShield.detections - 1);
+    }
+
+    // M49 — out-of-pipeline frame audit. Fires on a jittered timer.
+    // During the capture window: pass a frame descriptor through any
+    // registered frame_audit_hooks (bypass point), then check if the
+    // frame still looks suspicious.
+    if (this.frameAudit.enabled && now >= this.frameAudit.nextAuditAt) {
+      const dll2 = (typeof window !== "undefined" && window.__hw)
+        ? window.__hw.dll : null;
+      // Build the capture object — what the AC "sees" from outside.
+      const captureFrame = {
+        espActive: this.espActive ? 1 : 0,
+        renderHookCount: (dll2 && dll2.renderHooks) ? dll2.renderHooks.length : 0,
+      };
+      // Give DLL audit hooks a chance to scrub the capture before the
+      // AC reads it. Real equivalent: hooking DXGI DesktopDuplication
+      // or the driver-level GPU sampler before the AC's screenshot arrives.
+      this.frameAudit.auditing = true;
+      if (dll2 && dll2.frameAuditHooks && dll2.frameAuditHooks.length > 0) {
+        for (const hook of dll2.frameAuditHooks) {
+          try {
+            const result = hook(captureFrame);
+            if (result && typeof result === "object") {
+              if ("espActive" in result) captureFrame.espActive = result.espActive;
+              if ("renderHookCount" in result) captureFrame.renderHookCount = result.renderHookCount;
+            }
+          } catch (e) {
+            if (dll2 && dll2.log) dll2.log("[frame_audit_hook error] " + e.message);
+          }
+        }
+      }
+      this.frameAudit.auditing = false;
+      // Detection: frame still shows an overlay after hook ran.
+      const suspicious = captureFrame.espActive > 0 || captureFrame.renderHookCount > 0;
+      if (suspicious) {
+        this.frameAudit.detections++;
+        this.frameAudit.lastDetectedAt = now;
+      } else {
+        this.frameAudit.detections = Math.max(0, this.frameAudit.detections - 1);
+      }
+      // Schedule next audit with fresh jitter.
+      const jitter = (Math.random() - 0.5) * this.frameAudit.jitterMs;
+      this.frameAudit.nextAuditAt = now + this.frameAudit.baseIntervalMs + jitter;
     }
 
     // M40 — spectator events. Toggle 'watching' state every ~8s so
