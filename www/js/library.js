@@ -6,6 +6,87 @@
 
 const ARTICLES = [
   {
+    id: "render-flags",
+    title: "Wallhacks Are Just Boolean Flips",
+    brief: "Why visual cheats are usually the easiest hack you'll ever write.",
+    body: `
+      <h2>The render config struct</h2>
+      <p>Every game engine has a render config — a struct of bools, ints, and
+      floats that the renderer reads each frame to decide what to draw. Things
+      like:</p>
+      <pre><code>struct RenderConfig {
+  bool  draw_player_outline;   // ESP toggle
+  bool  draw_enemy_hp_bar;
+  bool  draw_minimap;
+  bool  cull_behind_walls;     // turn this off → wallhack
+  float fov_multiplier;        // freeze high → fov hack
+  int   chams_color;
+};</code></pre>
+
+      <p>These flags exist because dev builds need them. Programmers turn them
+      on while debugging, then ship the binary with them off. The values are
+      still in memory — a 0 where a 1 would change the picture.</p>
+
+      <h2>Why this is the easiest external hack to ship</h2>
+      <p>You don't have to find anything that <em>moves.</em> Render flags are
+      typically static across a game session: ESP-off is 0 from launch to exit.
+      That kills the usual "scan/walk/scan" workflow… because nothing changes.</p>
+
+      <p>The trick — which M13 makes you live through — is the inverse:</p>
+      <ol>
+        <li><strong>Scan for 0</strong> (or use Unknown Initial Value).</li>
+        <li><strong>Filter "unchanged"</strong> repeatedly while time passes. Noise
+            cells drift; static cells don't. After a few passes you have a
+            short list of stable zeros.</li>
+        <li><strong>Trial and error.</strong> Edit each candidate to 1, watch the
+            screen. The right one paints ESP / removes culling / lights up
+            health bars. Wrong ones do nothing.</li>
+      </ol>
+
+      <p>Real CE workflow's identical. Right-click an address, "Change value,"
+      see what changed.</p>
+
+      <h2>Common render flags worth checking in real games</h2>
+      <ul>
+        <li><strong>Wireframe mode</strong> — leftover dev flag in many engines.
+            Set <code>r_drawmodels</code> or <code>cull_disable</code> to 1
+            and the world goes see-through.</li>
+        <li><strong>HUD elements</strong> — show enemy team, hide team, force
+            radar. Each is usually a separate bool.</li>
+        <li><strong>FOV multiplier</strong> — float, often 1.0. Bump to 1.5 and
+            you get peripheral vision the engine assumes you don't have.</li>
+        <li><strong>Lighting / fog</strong> — fog density, ambient light. Float
+            to 0 and night maps become daylight.</li>
+      </ul>
+
+      <h2>Defenses you'll see</h2>
+      <ul>
+        <li><strong>Server-side rendering decisions</strong> — competitive games
+            cull enemies on the server before sending packets. No render flag
+            you can flip will reveal them; the data isn't in your client. The
+            network track (M27+) covers what to do here.</li>
+        <li><strong>Render config in read-only memory</strong> — some engines
+            map the config page <code>VirtualProtect</code>'d to PAGE_READONLY.
+            CE can still write through it (it uses <code>WriteProcessMemory</code>),
+            but trainer code that does direct pointer writes will fault. Switch
+            to a CE auto-assembler script.</li>
+        <li><strong>Periodic CRC of render config</strong> — same shape as M6
+            watchdog. Defeated the same way: find the watchdog cell, freeze the
+            tick, render flips stay applied.</li>
+      </ul>
+
+      <h2>How M13 maps to real ESP / wallhack devs</h2>
+      <p>The mission gives you one boolean (<code>render.espVisible</code>) and
+      asks you to find it. A real "ESP" cheat finds <em>several</em> bools and
+      makes them all true:
+      <code>show_enemies, show_their_hp, show_their_weapons, show_through_walls.</code>
+      Same scan, repeated. Same trial-and-error. Same payoff.</p>
+
+      <p>This is why visual cheat creators were the first internet game-hacking
+      community: lowest barrier to entry, biggest visible payoff.</p>
+    `,
+  },
+  {
     id: "stat-cells",
     title: "Stats, Resources, and the Boring Truth of Game Hacks",
     brief: "Ammo, damage, speed, gold, mana — the same int-in-a-struct trick, dressed up.",

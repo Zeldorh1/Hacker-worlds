@@ -76,7 +76,8 @@ export class HintEngine {
       this.fired.add(r.id);
       this.lastFireAt = now;
       const speaker = this.guided ? "VEX GUIDE" : "VEX TIP";
-      this.dialog.say(speaker, r.say);
+      const text = (typeof r.say === "function") ? r.say(ctx) : r.say;
+      this.dialog.say(speaker, text);
       break;
     }
   }

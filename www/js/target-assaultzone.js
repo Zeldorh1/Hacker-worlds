@@ -95,6 +95,14 @@ export class AssaultZone {
     this.enemiesActive = false;   // missions opt them in
     this.radarActive = false;
     this.espActive = false;
+    this.enemiesCamouflaged = false;   // M13: enemies render dim until ESP flipped on
+
+    // M13 WALLHACK — render flag bound as an int (0/1). Flipping it to 1
+    // turns ESP on without touching the gameplay-side enableESP() path.
+    // Real game equivalent: a boolean in a render config struct.
+    this.addrEspVisible = memory.bindGameValue("render.espVisible",
+      () => (this.espActive ? 1 : 0),
+      v => { this.espActive = !!(v | 0); });
 
     // Static pointer cell whose VALUE is always the current entity-array
     // base address. Survives rebases — the address itself never moves,
@@ -147,6 +155,11 @@ export class AssaultZone {
     this.addrWeaponDamage = memory.bindGameValue("weapon.damage",
       () => this.weapon.damage,
       v => { this.weapon.damage = v; });
+    // M14 RAPID FIRE — fire-rate cooldown bound to memory. Same pattern
+    // as M12 but on the weapon side: freeze it low and you can spam.
+    this.addrWeaponCooldown = memory.bindGameValue("weapon.cooldownMs",
+      () => this.weapon.cooldownMs,
+      v => { this.weapon.cooldownMs = v; });
 
     this.paused = false;
     this._pausedAt = 0;
@@ -190,6 +203,7 @@ export class AssaultZone {
     this.weapon.enabled = false;
     this.weapon.lastFireAt = 0;
     this.weapon.damage = 25;
+    this.weapon.cooldownMs = 320;
     this.crosshairTargetId = 0;
     this.aimbotKills = 0;
     this.killCount = 0;
@@ -207,9 +221,11 @@ export class AssaultZone {
     this.deaths = 0;
     this.lastBleedAt = 0;
     this.enemyManager.reset();
+    this.enemiesCamouflaged = false;
     // Unfreeze any cells from a previous run.
     for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo,
-                     this.addrMoveCooldown, this.addrWeaponDamage]) {
+                     this.addrMoveCooldown, this.addrWeaponDamage,
+                     this.addrWeaponCooldown, this.addrEspVisible]) {
       memory.setFrozen(a, false);
     }
     // Also clear freezes on the enemy struct array.
@@ -245,6 +261,10 @@ export class AssaultZone {
   disableRadar()  { this.radarActive = false; }
   enableESP()     { this.espActive = true; }
   disableESP()    { this.espActive = false; }
+
+  // M13 WALLHACK — turns enemies near-invisible while espActive is off.
+  enableCamouflage()  { this.enemiesCamouflaged = true; this.espActive = false; }
+  disableCamouflage() { this.enemiesCamouflaged = false; }
 
   enableWatchdog() {
     this.watchdog.enabled = true;
@@ -587,13 +607,18 @@ export class AssaultZone {
 
     // Enemies — drawn under the player so the player sprite stays on top.
     if (this.enemiesActive) {
+      // M13 WALLHACK — when enemies are camouflaged AND ESP is off,
+      // they render almost invisible against the floor. Flipping the
+      // render.espVisible cell turns ESP on, which both adds the label
+      // overlay AND restores their full color.
+      const camo = this.enemiesCamouflaged && !this.espActive;
       for (const e of this.enemyManager.enemies) {
         if (!e.alive) continue;
         const ex = e.x * T;
         const ey = e.y * T;
-        ctx.fillStyle = "#7f1d1d";
+        ctx.fillStyle = camo ? "#1d1610" : "#7f1d1d";
         ctx.fillRect(ex + 2, ey + 2, T - 4, T - 4);
-        ctx.strokeStyle = "#f87171";
+        ctx.strokeStyle = camo ? "#26201a" : "#f87171";
         ctx.strokeRect(ex + 2.5, ey + 2.5, T - 5, T - 5);
 
         // ESP overlay — name + HP label above each enemy.
