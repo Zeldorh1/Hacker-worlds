@@ -130,19 +130,22 @@ export const mission29 = {
       if (done) return;
       if (!$console) return;
       const txt = $console.textContent || "";
-      // Win when the generated C++ shows up (detected by AC-specific
-      // identifier strings) AND has been visible for at least 2s
-      // (gives the player time to read it).
+      // Win when the generated C++ contains the full trainer
+      // scaffolding: AC offsets + cheat thread + EndScene hook
+      // + ImGui menu + DllMain. Two-second linger so the player
+      // can scroll and see what landed.
       const looksLikeExport =
         txt.includes("OFF_PLAYER_BASE_PTR") &&
         txt.includes("ac_client.exe") &&
-        txt.includes("cheat_thread");
+        txt.includes("cheat_thread") &&
+        txt.includes("hkEndScene") &&
+        txt.includes("ImGui::Checkbox");
       if (looksLikeExport && exportedAt === 0) {
         exportedAt = performance.now();
       }
       if (exportedAt > 0 && performance.now() - exportedAt >= 2000) {
         done = true;
-        complete("Exported — that's a real AssaultCube trainer source. Drop it in Visual Studio, build, inject. Curriculum closes the loop.");
+        complete("Full trainer exported — AC offsets, cheat thread, EndScene hook, ImGui menu, DllMain. Drop in Visual Studio, build, inject, DELETE for menu. Curriculum closes the loop.");
         clearInterval(interval);
       }
     }, 250);

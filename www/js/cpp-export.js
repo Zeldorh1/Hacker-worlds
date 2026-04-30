@@ -1,140 +1,237 @@
 // Export-to-C++ — emits a real Visual Studio-buildable .cpp file
 // targeting AssaultCube based on the player's simulator DLL source.
 //
-// Strategy:
-//   1. Parse the player's JS-flavored DLL for register_cheat /
-//      register_render_hook / write_label / read_label / load_payload
-//      calls we recognise.
-//   2. Translate each pattern into the equivalent C++ targeting
-//      ac_client.exe with hardcoded AC offsets.
-//   3. Emit a complete file: includes, AC offset table, DllMain,
-//      cheat thread, DirectX EndScene hook (if render hooks were
-//      registered), exit wiring.
+// What this generates: a complete trainer source file with
+//   - Win32 + D3D9 + ImGui includes
+//   - AC offset constants
+//   - One bool global per detected register_cheat()
+//   - cheat_thread loop that gates each cheat behind its bool
+//   - DLL-hijacking-style DllMain (or CreateRemoteThread compatible)
+//   - D3D9 EndScene hook with ImGui menu rendering
+//   - One ImGui::Checkbox per registered cheat
+//   - DELETE-key toggle on the menu visibility
 //
-// Output is a real AssaultCube trainer source that the player can
-// paste into a Visual Studio DLL project, build, and inject. The
-// sim is the practice ground; the export is the deployable artifact.
-//
-// Public AC 1.2.0.2 offsets (these are documented in every public
-// AC hacking tutorial, including gamehacking.academy — they're
-// stable across the game's lifetime):
+// The output is roughly the same shape as a CAEU-class published
+// trainer: monolithic .dll, in-game ImGui menu, hardcoded offsets.
 
 const AC_OFFSETS = {
-  player_base_ptr: "0x10F4F4",   // ac_client.exe + 0x10F4F4 → Player*
-  player_hp:       "0xEC",       // *(int*)(player_base + 0xEC)
+  player_base_ptr: "0x10F4F4",
+  player_hp:       "0xEC",
   player_armor:    "0xF0",
-  player_ammo:     "0x140",      // current weapon ammo
+  player_ammo:     "0x140",
   player_x:        "0x4",
   player_y:        "0xC",
   player_z:        "0x8",
   player_team:     "0x32C",
-  weapon_damage:   "0x118",      // player+0x374 → weapon* +0x118 in some builds
-  enemy_count:     "0x10F500",   // ac_client.exe + 0x10F500 → numplayers
-  enemy_array:     "0x10F4F8",   // ac_client.exe + 0x10F4F8 → Player**
-  view_matrix:     "0x17DFD0",   // ac_client.exe + 0x17DFD0 → 4x4 float matrix
+  enemy_count:     "0x10F500",
+  enemy_array:     "0x10F4F8",
+  view_matrix:     "0x17DFD0",
 };
 
-// Translate a write_label call to the equivalent AC pointer chain.
-function translateLabelWrite(label, value) {
-  switch (label) {
-    case "player.hp":
-      return `*(int*)(player_base + ${AC_OFFSETS.player_hp}) = ${value};`;
-    case "player.ammo":
-      return `*(int*)(player_base + ${AC_OFFSETS.player_ammo}) = ${value};`;
-    case "weapon.damage":
-      // Damage in AC is per-weapon-descriptor; this is approximate.
-      return `// weapon.damage maps to weapon descriptor in ac_client; see Codex\n    // *(int*)(weapon_descriptor + 0x...) = ${value};`;
-    case "crosshair.target":
-      // No direct equivalent; the AC aimbot computes a target each
-      // frame and SetCursorPos / mouse_event to center on them.
-      return `// crosshair.target — see aimbot loop (no direct cell)`;
-    default:
-      return `// write_label("${label}", ${value}) — no AC mapping yet`;
-  }
+// Convert a cheat label to a C++ identifier ("Infinite HP" → inf_hp).
+function labelToIdent(label) {
+  return "g_" + label.toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
-// Detect what features the source uses and emit the right C++.
+// Map a label's intent to the C++ body that should run when the
+// cheat is enabled. Falls back to a TODO comment for unrecognised
+// labels.
+function tickBodyForCheat(label) {
+  const lower = label.toLowerCase();
+  if (lower.includes("hp") || lower.includes("health") || lower.includes("god")) {
+    return `*(int*)(player_base + OFF_HP) = 100;`;
+  }
+  if (lower.includes("ammo")) {
+    return `*(int*)(player_base + OFF_AMMO) = 99;`;
+  }
+  if (lower.includes("damage") || lower.includes("dmg")) {
+    return `// 'damage' lives in weapon descriptor — see Codex 'AC Offsets Cheat Sheet'\n            // *(int*)(weapon_ptr + 0x18) = 200;`;
+  }
+  if (lower.includes("aim") || lower.includes("target")) {
+    return `aimbot_tick(base);   // see aimbot_tick() definition above`;
+  }
+  if (lower.includes("trigger")) {
+    return `triggerbot_tick(base);`;
+  }
+  if (lower.includes("speed")) {
+    return `// speed: write to player+0x?? (movement struct), see Codex`;
+  }
+  if (lower.includes("esp") || lower.includes("wallhack") || lower.includes("visual") || lower.includes("render")) {
+    return `// ESP is drawn from the EndScene hook below — no per-tick code needed`;
+  }
+  return `// TODO: implement per-tick body for '${label}'`;
+}
+
+// Pull every register_cheat() label out of the source.
+function extractCheatLabels(source) {
+  const out = [];
+  const re = /register_cheat\s*\(\s*["']([^"']+)["']/g;
+  let m;
+  while ((m = re.exec(source))) out.push(m[1]);
+  return out;
+}
+
 function analyzeSource(source) {
   return {
-    hasAimbot: /register_cheat\s*\(\s*["']Aimbot["']/.test(source),
-    hasTriggerBot: /register_cheat\s*\(\s*["']Trigger\s*Bot["']/.test(source),
-    hasInfHp: /register_cheat\s*\(\s*["']Infinite\s*HP["']/.test(source) ||
-              /write_label\s*\(\s*["']player\.hp["']\s*,\s*100\s*\)/.test(source),
-    hasInfAmmo: /register_cheat\s*\(\s*["']Infinite\s*Ammo["']/.test(source) ||
-                /write_label\s*\(\s*["']player\.ammo["']/.test(source),
-    hasSuperDmg: /register_cheat\s*\(\s*["']Super\s*Damage["']/.test(source) ||
-                 /write_label\s*\(\s*["']weapon\.damage["']/.test(source),
     hasRenderHook: /register_render_hook\s*\(/.test(source),
+    hasPacketHook: /register_packet_hook\s*\(/.test(source),
     hasStager: /load_payload\s*\(/.test(source),
+    hasInjectPacket: /inject_packet\s*\(/.test(source),
+    cheatLabels: extractCheatLabels(source),
   };
 }
 
 export function exportToCpp(source) {
   const a = analyzeSource(source);
-  const features = [];
-  if (a.hasInfHp) features.push("Infinite HP");
-  if (a.hasInfAmmo) features.push("Infinite Ammo");
-  if (a.hasSuperDmg) features.push("Super Damage");
-  if (a.hasAimbot) features.push("Aimbot");
-  if (a.hasTriggerBot) features.push("Trigger Bot");
-  if (a.hasRenderHook) features.push("ESP / Render Hook");
-  if (a.hasStager) features.push("Stager pattern");
 
-  const featureComment = features.length
-    ? "// Features detected in your sim DLL:\n" + features.map(f => `//   - ${f}`).join("\n")
+  // Build per-cheat globals + menu checkboxes + tick bodies.
+  const cheatGlobals = a.cheatLabels.map(label =>
+    `bool ${labelToIdent(label)} = false;   // "${label}"`
+  ).join("\n");
+
+  const cheatTickBlocks = a.cheatLabels.map(label => {
+    const ident = labelToIdent(label);
+    const body = tickBodyForCheat(label);
+    return `        if (${ident}) {\n            ${body}\n        }`;
+  }).join("\n");
+
+  const cheatCheckboxes = a.cheatLabels.map(label =>
+    `        ImGui::Checkbox("${label}", &${labelToIdent(label)});`
+  ).join("\n");
+
+  const featureSummary = [];
+  if (a.cheatLabels.length) featureSummary.push(`${a.cheatLabels.length} togglable cheat(s)`);
+  if (a.hasRenderHook) featureSummary.push("render hook (ESP via EndScene)");
+  if (a.hasPacketHook) featureSummary.push("packet hook(s)");
+  if (a.hasStager) featureSummary.push("stager / payload pattern");
+  if (a.hasInjectPacket) featureSummary.push("packet replay / injection");
+  const featureComment = featureSummary.length
+    ? "// Detected in your sim DLL:\n" + featureSummary.map(f => `//   - ${f}`).join("\n")
     : "// (no recognised features — emitting baseline trainer)";
 
-  const tickBody = [];
-  if (a.hasInfHp)    tickBody.push(`        *(int*)(player_base + ${AC_OFFSETS.player_hp})   = 100;`);
-  if (a.hasInfAmmo)  tickBody.push(`        *(int*)(player_base + ${AC_OFFSETS.player_ammo}) = 99;`);
-  if (a.hasSuperDmg) tickBody.push(`        // weapon damage tweak — see Codex 'AC Offsets Cheat Sheet'`);
+  const aimbotFn = a.cheatLabels.some(l => /aim|target/i.test(l)) ? `
+// ---- Aimbot ----
+// Iterate the enemy array, pick the closest alive, and steer the
+// crosshair toward them with mouse_event(). Real CAEU did this with
+// _CIatan2 + _CIcos + _CIsin imports for angle math. Add reaction
+// delay + jitter (M33 lessons) if you ever target a game with
+// behavioral AC.
+static DWORD g_last_aim_at = 0;
+void aimbot_tick(uintptr_t base) {
+    DWORD now = GetTickCount();
+    if (now - g_last_aim_at < 200) return;   // M33 reaction delay
+    g_last_aim_at = now;
 
-  const aimbotBlock = a.hasAimbot ? `
-        // ---- Aimbot ----
-        // Walk the enemy array. For AC 1.2:
-        //   uint32_t numplayers = *(uint32_t*)(0x${AC_OFFSETS.enemy_count.slice(2)});
-        //   Player** enemies   = *(Player***)(0x${AC_OFFSETS.enemy_array.slice(2)});
-        // For each enemy, compute screen-space angle delta to your
-        // crosshair using atan2(dy, dx). Use mouse_event() to nudge
-        // the mouse delta toward the closest enemy. Real CAEU did
-        // this with _CIatan2 + _CIcos + _CIsin imports.` : "";
+    uintptr_t player_base = *(uintptr_t*)(base + OFF_PLAYER_BASE_PTR);
+    if (!player_base) return;
+    uint32_t numplayers = *(uint32_t*)(base + OFF_ENEMY_COUNT);
+    void** enemies      = *(void***)(base + OFF_ENEMY_ARRAY);
+    if (!enemies) return;
 
-  const renderHookBlock = a.hasRenderHook ? `
-// ---- ESP via D3D9 EndScene hook ----
+    float my_x = *(float*)(player_base + OFF_POS_X);
+    float my_y = *(float*)(player_base + OFF_POS_Y);
+
+    void* best = nullptr;
+    float best_d = 1e9f;
+    for (uint32_t i = 0; i < numplayers; i++) {
+        void* e = enemies[i];
+        if (!e) continue;
+        int hp = *(int*)((uintptr_t)e + OFF_HP);
+        if (hp <= 0) continue;
+        float ex = *(float*)((uintptr_t)e + OFF_POS_X);
+        float ey = *(float*)((uintptr_t)e + OFF_POS_Y);
+        float d  = (ex - my_x) * (ex - my_x) + (ey - my_y) * (ey - my_y);
+        if (d < best_d) { best_d = d; best = e; }
+    }
+    if (!best) return;
+
+    // To actually steer the mouse, compute angle from yaw to enemy
+    // and use mouse_event(MOUSEEVENTF_MOVE, dx, dy, ...) to nudge.
+    // Skipped here for brevity — see the M28 Codex notes.
+}
+
+void triggerbot_tick(uintptr_t base) {
+    // Auto-fire when crosshair sits on an alive enemy.
+    // Implementation: re-read crosshair-target cell, send a click
+    // with mouse_event(MOUSEEVENTF_LEFTDOWN|UP).
+}` : "";
+
+  const espBlock = a.hasRenderHook ? `
+// ---- ESP (drawn inside EndScene hook below) ----
 //
-// Install with MinHook:
-//   void* endscene = get_endscene_via_dummy_device();
-//   MH_CreateHook(endscene, &hkEndScene, (void**)&oEndScene);
-//   MH_EnableHook(endscene);
-//
-// Inside hkEndScene:
-//   for each enemy in enemy_array:
-//     if !enemy->alive continue
-//     D3DXVECTOR3 screen, world(enemy->x, enemy->y, enemy->z);
-//     D3DXVec3Project(&screen, &world, nullptr, nullptr, nullptr,
-//                     view_matrix, viewport_w, viewport_h);
-//     if (screen.z > 1.0f) continue;   // behind camera
-//     draw_rect(device, screen.x - 16, screen.y - 24, 32, 48,
-//               D3DCOLOR_ARGB(255, 0, 255, 255));
-//     // name + HP via D3DXCreateFontA → DrawTextA
-//
-// Full reference in the Codex 'Render Hooking' article.` : "";
+// For each alive enemy in the enemy array, project the world coord
+// to screen via D3DXVec3Project, then draw a box and label.
+void draw_esp(LPDIRECT3DDEVICE9 device, ID3DXFont* font) {
+    HMODULE hMod = GetModuleHandleA("ac_client.exe");
+    if (!hMod) return;
+    uintptr_t base = (uintptr_t)hMod;
+    uint32_t numplayers = *(uint32_t*)(base + OFF_ENEMY_COUNT);
+    void** enemies      = *(void***)(base + OFF_ENEMY_ARRAY);
+    float* viewProj     = (float*)(base + OFF_VIEW_MATRIX);
+    if (!enemies || !viewProj) return;
+
+    D3DVIEWPORT9 vp;
+    device->GetViewport(&vp);
+
+    for (uint32_t i = 0; i < numplayers; i++) {
+        void* e = enemies[i];
+        if (!e) continue;
+        int hp = *(int*)((uintptr_t)e + OFF_HP);
+        if (hp <= 0) continue;
+        D3DXVECTOR3 world(
+            *(float*)((uintptr_t)e + OFF_POS_X),
+            *(float*)((uintptr_t)e + OFF_POS_Z),
+            *(float*)((uintptr_t)e + OFF_POS_Y));
+        D3DXVECTOR3 screen;
+        D3DXVec3Project(&screen, &world, nullptr,
+                        nullptr, nullptr, (D3DXMATRIX*)viewProj,
+                        vp.Width, vp.Height);
+        if (screen.z > 1.0f) continue;   // behind camera
+        // Draw a 32x48 rect centered on the projected position.
+        // In a real trainer use ID3DXLine or a vertex buffer.
+        char buf[64];
+        sprintf_s(buf, "HP %d", hp);
+        RECT r = { (LONG)screen.x, (LONG)(screen.y - 36),
+                   (LONG)screen.x + 200, (LONG)screen.y };
+        font->DrawTextA(nullptr, buf, -1, &r, DT_LEFT,
+                        D3DCOLOR_ARGB(255, 0, 255, 255));
+    }
+}` : "";
 
   return `// =============================================================
 //  AssaultCube trainer — auto-generated from Hacker Worlds sim
 // =============================================================
 //
-// Build with Visual Studio 2017+ as a 32-bit DLL.
-// Inject with any standard injector (CreateRemoteThread + LoadLibraryA,
-// or rename to SDL.dll for auto-load via DLL hijacking).
-//
-// Target: ac_client.exe (AssaultCube 1.2.0.2 — public version).
+// Target: ac_client.exe (AssaultCube 1.2.0.2 — public open-source build).
+// Build:  Visual Studio 2017+, 32-bit, Dynamic Library, /MT runtime.
+// Inject: any loader (CreateRemoteThread + LoadLibraryA), or rename to
+//         SDL.dll for auto-load via DLL hijacking (M25 lesson).
 //
 ${featureComment}
+//
+// Required libraries (link against):
+//   d3d9.lib  d3dx9.lib  MinHook.lib  imgui (drop ImGui sources in)
+//
+// Required ImGui setup:
+//   - Add ImGui's source files: imgui.cpp, imgui_draw.cpp,
+//     imgui_widgets.cpp, imgui_tables.cpp, imgui_impl_dx9.cpp,
+//     imgui_impl_win32.cpp.
+//   - MinHook (https://github.com/TsudaKageyu/minhook) for the
+//     EndScene + WndProc detours.
 
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <process.h>
-${a.hasRenderHook ? '#include <d3d9.h>\n#include <d3dx9.h>\n// Link: d3d9.lib, d3dx9.lib, MinHook.lib' : ''}
+#include <stdint.h>
+#include <stdio.h>
+#include <d3d9.h>
+#include <d3dx9.h>
+#include "MinHook.h"
+#include "imgui.h"
+#include "imgui_impl_dx9.h"
+#include "imgui_impl_win32.h"
 
 // ---- AC offsets (public, AssaultCube 1.2.0.2) ----
 constexpr uintptr_t OFF_PLAYER_BASE_PTR = ${AC_OFFSETS.player_base_ptr};
@@ -149,37 +246,128 @@ constexpr uintptr_t OFF_ENEMY_COUNT     = ${AC_OFFSETS.enemy_count};
 constexpr uintptr_t OFF_ENEMY_ARRAY     = ${AC_OFFSETS.enemy_array};
 constexpr uintptr_t OFF_VIEW_MATRIX     = ${AC_OFFSETS.view_matrix};
 
-// ---- Cheat thread ----
+// ---- Per-cheat globals (one bool each, toggled by ImGui::Checkbox) ----
+${cheatGlobals || "// (no cheats detected — populated when register_cheat() is used)"}
+bool g_menu_visible = false;
+
+${aimbotFn}
+
+${espBlock}
+
+// ---- Cheat thread (~60 Hz, applies the ticked cheats) ----
 unsigned __stdcall cheat_thread(void*) {
     HMODULE hMod = GetModuleHandleA("ac_client.exe");
     if (!hMod) return 0;
     uintptr_t base = (uintptr_t)hMod;
 
     while (true) {
-        // Resolve the player struct each iteration (handles relocations).
         uintptr_t player_base = *(uintptr_t*)(base + OFF_PLAYER_BASE_PTR);
         if (player_base) {
-${tickBody.join("\n") || "            // (no per-tick patches detected)"}${aimbotBlock}
+${cheatTickBlocks || "            // (no togglable cheats — body empty)"}
         }
-
-        // Press DELETE to toggle a menu. Real implementation uses
-        // ImGui-on-EndScene; this skeleton just demonstrates the hotkey.
+        // DELETE toggles the menu — same hotkey as M23.
         if (GetAsyncKeyState(VK_DELETE) & 1) {
-            // toggle menu visible flag here
+            g_menu_visible = !g_menu_visible;
         }
-
-        Sleep(16);   // ~60 Hz
+        Sleep(16);
     }
     return 0;
 }
 
-${renderHookBlock}
+// ---- D3D9 EndScene hook (renders ImGui menu + ESP) ----
+typedef HRESULT(__stdcall* EndScene_t)(IDirect3DDevice9*);
+EndScene_t  oEndScene = nullptr;
+ID3DXFont*  g_font    = nullptr;
+bool        g_imgui_init = false;
+HWND        g_game_hwnd  = nullptr;
+
+extern IMGUI_IMPL_API LRESULT
+ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
+WNDPROC oWndProc = nullptr;
+
+LRESULT CALLBACK hkWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (g_menu_visible &&
+        ImGui_ImplWin32_WndProcHandler(h, m, w, l)) return 1;
+    return CallWindowProcA(oWndProc, h, m, w, l);
+}
+
+HRESULT __stdcall hkEndScene(IDirect3DDevice9* device) {
+    if (!g_imgui_init) {
+        D3DDEVICE_CREATION_PARAMETERS p;
+        device->GetCreationParameters(&p);
+        g_game_hwnd = p.hFocusWindow;
+        oWndProc = (WNDPROC)SetWindowLongPtrA(g_game_hwnd, GWLP_WNDPROC,
+                       (LONG_PTR)hkWndProc);
+
+        ImGui::CreateContext();
+        ImGui_ImplWin32_Init(g_game_hwnd);
+        ImGui_ImplDX9_Init(device);
+        D3DXCreateFontA(device, 14, 0, FW_NORMAL, 1, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, DEFAULT_QUALITY,
+            DEFAULT_PITCH | FF_DONTCARE, "Arial", &g_font);
+        g_imgui_init = true;
+    }
+
+    ${a.hasRenderHook ? "draw_esp(device, g_font);" : "// no render hook → no ESP draw"}
+
+    if (g_menu_visible) {
+        ImGui_ImplDX9_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::Begin("AC Trainer — DELETE to close",
+                     &g_menu_visible,
+                     ImGuiWindowFlags_AlwaysAutoResize);
+${cheatCheckboxes || "        ImGui::Text(\"(no cheats registered)\");"}
+        ImGui::End();
+
+        ImGui::Render();
+        ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+    }
+    return oEndScene(device);
+}
+
+// Find EndScene's address via the dummy-device trick (Codex: 'Render
+// Hooking — Drawing on the Game's Frame'):
+void* get_endscene_addr() {
+    HWND tmp = CreateWindowA("BUTTON", "", 0, 0, 0, 1, 1, NULL, NULL,
+                             GetModuleHandleA(NULL), NULL);
+    IDirect3D9* d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    D3DPRESENT_PARAMETERS pp = {};
+    pp.Windowed = TRUE;
+    pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    pp.BackBufferFormat = D3DFMT_UNKNOWN;
+    pp.hDeviceWindow = tmp;
+    IDirect3DDevice9* dev = nullptr;
+    d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, tmp,
+        D3DCREATE_SOFTWARE_VERTEXPROCESSING, &pp, &dev);
+    void** vtbl = *(void***)dev;
+    void* es = vtbl[42];   // EndScene is index 42 on D3D9
+    dev->Release();
+    d3d->Release();
+    DestroyWindow(tmp);
+    return es;
+}
+
+void install_render_hook() {
+    void* es = get_endscene_addr();
+    MH_Initialize();
+    MH_CreateHook(es, &hkEndScene, (void**)&oEndScene);
+    MH_EnableHook(es);
+}
 
 // ---- DllMain — entry point ----
 BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hInst);
+        // Spawn the cheat thread (per-frame cheat application).
         _beginthreadex(nullptr, 0, cheat_thread, nullptr, 0, nullptr);
+        // Install the EndScene hook for menu + ESP rendering.
+        install_render_hook();
+    }
+    if (reason == DLL_PROCESS_DETACH) {
+        MH_DisableHook(MH_ALL_HOOKS);
+        MH_Uninitialize();
     }
     return TRUE;
 }
@@ -187,15 +375,19 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID) {
 // =============================================================
 //  END
 //
-//  To build:
-//    1. Visual Studio → New Project → Dynamic-Link Library (DLL),
-//       C++, Empty Project.
-//    2. Drop this file in the Source Files folder.
-//    3. Project Properties → C/C++ → Code Generation → Runtime
-//       Library → Multi-threaded (/MT) for static CRT.
-//    4. Linker → Input → Additional Dependencies: ${a.hasRenderHook ? 'd3d9.lib d3dx9.lib MinHook.lib' : '(default Win32 libs)'}
-//    5. Build → Build Solution. Output: AC_Trainer.dll
-//    6. Inject via your loader, or rename to SDL.dll for auto-load.
+//  Build steps (Visual Studio 2017+):
+//    1. New Project → Empty Project (C++).
+//    2. Project Properties → Configuration Type → Dynamic Library.
+//    3. Configuration → Win32 (NOT x64 — AC is 32-bit).
+//    4. C/C++ → Code Generation → Runtime Library → /MT.
+//    5. Linker → Input → Additional Dependencies:
+//         d3d9.lib; d3dx9.lib; MinHook.lib
+//    6. Add ImGui source files + minhook source/lib to project.
+//    7. Drop this file in Source Files.
+//    8. Build. Output: AC_Trainer.dll.
+//    9. Inject (any standard injector), or rename to SDL.dll +
+//       drop in AC's folder for auto-load (M25 lesson).
+//   10. In-game: press DELETE to toggle the menu.
 // =============================================================
 `;
 }
