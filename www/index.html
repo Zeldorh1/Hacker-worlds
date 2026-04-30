@@ -173,11 +173,25 @@
           <ul id="watchlist" class="watchlist"></ul>
         </div>
       </section>
+      <section id="view-dll" class="view">
+        <div class="dll-editor">
+          <div class="dll-toolbar">
+            <button id="btn-dll-compile">Compile</button>
+            <button id="btn-dll-inject" class="primary">Inject</button>
+            <button id="btn-dll-eject" class="ghost">Eject</button>
+            <span id="dll-status" class="dll-status">not compiled</span>
+          </div>
+          <textarea id="dll-code" class="dll-code" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+          <div class="dll-console-label">DLL console</div>
+          <pre id="dll-console" class="dll-console" aria-live="polite"></pre>
+        </div>
+      </section>
     </main>
 
     <nav class="tabs">
       <button class="tab tab--active" data-view="target">ac_anomaly</button>
       <button class="tab" data-view="scanner">scanner</button>
+      <button class="tab" data-view="dll" id="tab-dll" hidden>dll</button>
     </nav>
   </div>
 

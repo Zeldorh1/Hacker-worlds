@@ -6,6 +6,164 @@
 
 const ARTICLES = [
   {
+    id: "internal-vs-external",
+    title: "Internal Cheats vs External — What a DLL Actually Does",
+    brief: "Where DLL injection sits, why it's stronger than a scanner, and what it CAN'T do.",
+    body: `
+      <h2>The two architectures</h2>
+      <p>Game cheats live in one of two places relative to the game's
+      process:</p>
+
+      <h3>External (what M01-M20 taught)</h3>
+      <p>A separate program (Cheat Engine, an EXE you wrote) attaches
+      to the game from outside. It uses Windows APIs like
+      <code>OpenProcess</code>, <code>ReadProcessMemory</code>, and
+      <code>WriteProcessMemory</code> to peek and poke at the game's
+      memory across the process boundary.</p>
+
+      <ul>
+        <li><strong>Pros:</strong> easy to write, easy to update, can be
+            run as a separate user account, can detach without affecting
+            the game.</li>
+        <li><strong>Cons:</strong> every read/write is a syscall (slow);
+            anti-cheat sees an unknown process opening handles to the
+            game and flags it; can't hook game functions directly.</li>
+      </ul>
+
+      <h3>Internal (DLL — what M21 starts teaching)</h3>
+      <p>Your code is loaded INTO the game's process. Once injected, your
+      cheat runs in the same address space as the game itself. Reads and
+      writes are just <code>*ptr = value</code> — no syscall, no
+      cross-process handle, microsecond latency.</p>
+
+      <ul>
+        <li><strong>Pros:</strong> orders of magnitude faster; can hook
+            game functions (intercept network packets, modify render
+            calls, replace allocator); can read encrypted state because
+            it has access to the same crypto keys; harder to detect
+            (lives inside an "approved" module).</li>
+        <li><strong>Cons:</strong> harder to write (need C++ + Win32
+            knowledge); needs to BE injected first (the injector itself
+            is detectable); a crash in your DLL crashes the game.</li>
+      </ul>
+
+      <h2>What a real DLL looks like</h2>
+      <p>Skeleton C++ for a Windows DLL — what M21 simulates:</p>
+
+      <pre><code>// hp_lock.cpp — compiled to hp_lock.dll
+#include &lt;windows.h&gt;
+
+DWORD WINAPI cheat_thread(LPVOID) {
+    while (true) {
+        // Resolve player struct via known offsets each iteration
+        // (handles relocations).
+        uintptr_t game_base = (uintptr_t)GetModuleHandle("game.exe");
+        uintptr_t player    = *(uintptr_t*)(game_base + 0x14B240);
+        if (player) {
+            *(int*)(player + 0x00) = 100;   // hp
+        }
+        Sleep(16);   // ~60Hz
+    }
+}
+
+BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        CreateThread(nullptr, 0, cheat_thread, nullptr, 0, nullptr);
+    }
+    return TRUE;
+}</code></pre>
+
+      <p>Compiled to <code>hp_lock.dll</code>, you'd then inject it with
+      a loader (CreateRemoteThread + LoadLibraryA, manual mapping,
+      hijacked module). Once loaded, <code>cheat_thread</code> runs on
+      its own thread inside the game process and re-applies HP every
+      ~16ms.</p>
+
+      <p>That's exactly what M21's pseudo-code does — JS instead of C++,
+      simulator instead of Windows, but the same architecture: a function
+      called every tick that reads and writes memory.</p>
+
+      <h2>What DLLs unlock that external cheats can't</h2>
+
+      <h3>Function hooking</h3>
+      <p>You can replace any game function with your own, calling the
+      original when you want and skipping it when you don't.</p>
+      <ul>
+        <li>Hook <code>recv()</code> → drop "you died" packets before
+            the game sees them. Server thinks you're dead, client
+            never knows.</li>
+        <li>Hook the rendering function → draw enemies even when the
+            game culled them as occluded. Wallhack that the
+            render-flag flip (M13) can't do.</li>
+        <li>Hook <code>memcpy</code> → log every frame's
+            transformations to the player struct. Reverse-engineering
+            tool.</li>
+      </ul>
+
+      <h3>Pattern scanning</h3>
+      <p>External cheats hardcode offsets per game version. Internal
+      cheats can scan the loaded module's memory at startup looking
+      for instruction byte patterns ("AOB scans") and resolve offsets
+      automatically. Updates that move things around don't break your
+      cheat.</p>
+
+      <h3>Reading encrypted state</h3>
+      <p>If the game encrypts critical state in memory (anti-cheat
+      tactic), the decryption key is somewhere in the game's memory
+      too. Your DLL has access; an external scanner sees garbage.</p>
+
+      <h2>What DLLs still CAN'T do</h2>
+      <p>Server-authoritative state from M18 still wins. A DLL that
+      writes <code>player.hp = 100</code> sixty times a second has
+      exactly the same effect on multiplayer as M18's external freeze
+      on the local cell — the visible cell stays at 100 but the
+      server's copy drains and you 'die' anyway.</p>
+
+      <p>The DLL advantages on the multiplayer front:</p>
+      <ul>
+        <li>Hook <code>recv()</code> to drop server-state-update
+            packets before they overwrite your local cell. (External
+            cheats can't do this — they'd need a network proxy.)</li>
+        <li>Hook the death-state-apply function to NOP out its
+            kill-code path. (External cheats can only freeze the
+            output cell; they can't stop the function from running.)</li>
+        <li>Hook the encryption routine to capture the server's HP
+            value before the client decrypts it for display. (External
+            cheats only see what the game has already decrypted into
+            visible cells.)</li>
+      </ul>
+
+      <p>Future M2X missions will teach each of these. M21 is the
+      starting point: the workflow of writing → compiling → injecting
+      a piece of code that runs inside the process.</p>
+
+      <h2>Injection mechanisms in real life</h2>
+      <ul>
+        <li><strong>CreateRemoteThread + LoadLibraryA</strong> — most
+            common. Open the game process, allocate a string with the
+            DLL path, spawn a remote thread that calls
+            <code>LoadLibraryA</code> with that path. Detected by
+            most anti-cheats.</li>
+        <li><strong>Manual mapping</strong> — bypass <code>LoadLibrary</code>
+            entirely. Allocate memory, copy the DLL bytes in, fix up
+            relocations and imports yourself, jump to entry point.
+            Harder to detect (no module appears in the loaded list).</li>
+        <li><strong>DLL hijacking</strong> — replace a DLL the game
+            loads on startup (e.g., dxgi.dll, d3d11.dll) with your own
+            that re-exports the originals. Auto-loads when game starts.
+            This is the 'auto-injection' pattern.</li>
+        <li><strong>Process hollowing</strong> — start the game in a
+            suspended state, replace its image, resume. Heaviest, most
+            invasive.</li>
+      </ul>
+
+      <p>The simulator's "Inject" button is the simplest case — equivalent
+      to CreateRemoteThread + LoadLibrary. Auto-injection (mission M22+)
+      will simulate the DLL hijacking pattern: your code persists across
+      mission restarts and pre-loads automatically.</p>
+    `,
+  },
+  {
     id: "respawn-position",
     title: "Respawn-Position Tampering — Stay Where You Died",
     brief: "Let the death register on the kill feed. Just don't get sent back to spawn.",

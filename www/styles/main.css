@@ -813,6 +813,44 @@ body[data-mode="hub"] .violation-bar { display: none; }
 .browse-results { max-height: 280px; }
 .browse-results .browse-base { background: rgba(34, 211, 238, 0.08); border-left: 2px solid var(--accent-2); }
 
+/* DLL editor */
+.dll-editor { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; height: 100%; box-sizing: border-box; }
+.dll-toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.dll-toolbar .dll-status { color: var(--fg-dim); font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
+.dll-toolbar .dll-status.ok { color: var(--accent); }
+.dll-toolbar .dll-status.error { color: var(--danger); }
+.dll-toolbar .dll-status.running { color: var(--accent-2); }
+.dll-code {
+  flex: 1 1 auto;
+  min-height: 220px;
+  width: 100%;
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.6rem;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.dll-console-label { color: var(--fg-dim); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.06em; }
+.dll-console {
+  background: var(--bg-3);
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.5rem 0.6rem;
+  margin: 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  max-height: 140px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
 /* Watchlist chain entries: subtle different background tint. */
 .watchlist li.chain {
   border-left: 3px solid #c084fc;

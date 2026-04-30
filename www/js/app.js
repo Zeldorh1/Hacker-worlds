@@ -15,12 +15,14 @@ import { memory }      from "./sim-memory.js";
 import { audio }       from "./audio.js";
 import { MISSIONS_BY_ID } from "./missions/index.js";
 import { missionState }   from "./mission-state.js";
+import { dllRuntime }     from "./dll.js";
 
 function setupTabs() {
   const tabs = document.querySelectorAll(".tab");
   const views = {
     target:  document.getElementById("view-target"),
     scanner: document.getElementById("view-scanner"),
+    dll:     document.getElementById("view-dll"),
   };
   function switchTo(name) {
     tabs.forEach(t => t.classList.toggle("tab--active", t.dataset.view === name));
@@ -82,6 +84,45 @@ function setupHintsButton() {
     refresh();
     audio.tap();
   });
+}
+
+function setupDllEditor() {
+  const $code    = document.getElementById("dll-code");
+  const $compile = document.getElementById("btn-dll-compile");
+  const $inject  = document.getElementById("btn-dll-inject");
+  const $eject   = document.getElementById("btn-dll-eject");
+  const $status  = document.getElementById("dll-status");
+  const $console = document.getElementById("dll-console");
+  if (!$code || !$compile) return;
+  function setStatus(text, cls) {
+    $status.textContent = text;
+    $status.className = "dll-status " + (cls || "");
+  }
+  function renderConsole() {
+    $console.textContent = dllRuntime.console.join("\n");
+    $console.scrollTop = $console.scrollHeight;
+  }
+  $compile.addEventListener("click", () => {
+    const result = dllRuntime.compile($code.value);
+    if (result.ok) setStatus("compiled — ready to inject", "ok");
+    else setStatus(result.error, "error");
+    renderConsole();
+  });
+  $inject.addEventListener("click", () => {
+    if (!dllRuntime.compiled) {
+      // Auto-compile-then-inject for convenience.
+      const result = dllRuntime.compile($code.value);
+      if (!result.ok) { setStatus(result.error, "error"); renderConsole(); return; }
+    }
+    if (dllRuntime.inject()) setStatus("injected — running", "running");
+  });
+  $eject.addEventListener("click", () => {
+    dllRuntime.eject();
+    setStatus("ejected", "");
+    renderConsole();
+  });
+  // Subscribe to runtime events so console updates live.
+  dllRuntime.on(() => renderConsole());
 }
 
 // ---- Trace bar (mission timer) ----
@@ -176,6 +217,7 @@ class Heartbeat {
 async function boot() {
   setupMuteButton();
   setupHintsButton();
+  setupDllEditor();
   await runBoot({ audio });
 
   // Show the orientation slides on first launch.
@@ -232,6 +274,11 @@ async function boot() {
         lastPointerResults: scanner.lastPointerResults,
         browseBase: scanner.lastBrowseBase,
       },
+      dllState: {
+        compiled: !!dllRuntime.compiled,
+        running: dllRuntime.running,
+        injectedFor: dllRuntime.injectedFor(),
+      },
       watchSize: watchDirectEls.length,
       hasChain,
       anyChainFrozen,
@@ -251,6 +298,7 @@ async function boot() {
     scanner.reset();
     scanner.clearWatchlist();
     dialog.clear();
+    dllRuntime.eject();
     hideTraceBar();
     hideDetectionBar();
     hideViolationBar();
@@ -259,6 +307,8 @@ async function boot() {
     if ($paused) $paused.hidden = true;
     const $restart = document.getElementById("btn-restart");
     if ($restart) $restart.hidden = true;
+    const $tabDll = document.getElementById("tab-dll");
+    if ($tabDll) $tabDll.hidden = true;
   }
 
   function endMission() {
@@ -336,6 +386,17 @@ async function boot() {
     // Show the RESTART button only for missions that support rebase.
     const $restart = document.getElementById("btn-restart");
     if ($restart) $restart.hidden = !m.rebase;
+
+    // DLL tab + template — only visible for missions that opt in.
+    const $tabDll = document.getElementById("tab-dll");
+    const $dllCode = document.getElementById("dll-code");
+    if ($tabDll) $tabDll.hidden = !m.dll;
+    if (m.dll && $dllCode && m.dllTemplate) {
+      $dllCode.value = m.dllTemplate;
+      const $status = document.getElementById("dll-status");
+      if ($status) { $status.textContent = "not compiled"; $status.className = "dll-status"; }
+      dllRuntime.clearConsole();
+    }
 
     if (m.watchdog) {
       showViolationBar();
@@ -510,7 +571,7 @@ async function boot() {
     });
   }
 
-  window.__hw = { target, scanner, dialog, missionState, launchMission, endMission, audio, memory };
+  window.__hw = { target, scanner, dialog, missionState, launchMission, endMission, audio, memory, dll: dllRuntime };
 }
 
 if (document.readyState === "loading") {

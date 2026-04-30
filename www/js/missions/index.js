@@ -18,6 +18,7 @@ import { mission17 } from "./mission-17.js";
 import { mission18 } from "./mission-18.js";
 import { mission19 } from "./mission-19.js";
 import { mission20 } from "./mission-20.js";
+import { mission21 } from "./mission-21.js";
 
 export const MISSIONS = [
   mission01, mission02, mission03, mission04, mission05,
@@ -25,5 +26,6 @@ export const MISSIONS = [
   mission10, mission11, mission12,
   mission13, mission14, mission15,
   mission16, mission17, mission18, mission19, mission20,
+  mission21,
 ];
 export const MISSIONS_BY_ID = Object.fromEntries(MISSIONS.map(m => [m.id, m]));
