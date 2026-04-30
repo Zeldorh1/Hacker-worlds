@@ -6,6 +6,185 @@
 
 const ARTICLES = [
   {
+    id: "render-hooking",
+    title: "Render Hooking — Drawing on the Game's Frame",
+    brief: "Hook EndScene, get the device, draw your overlay. The technique behind every wallhack and ESP that survives 'don't draw enemies' flag freezes.",
+    body: `
+      <h2>Why this beats every flag-flip</h2>
+      <p>M13 taught the data-side wallhack: find the bool that controls
+      enemy rendering, flip it. M26 surfaces the limitation: when an
+      anti-cheat watchdog freezes that bool at 0 (M6 territory),
+      writing 1 bounces back. Data attack blocked.</p>
+
+      <p>The render hook is the code-side answer. Instead of asking
+      the engine to draw enemies, you draw them yourself, AFTER the
+      engine has finished its frame, BEFORE it presents the back
+      buffer. The engine never knows you added pixels.</p>
+
+      <h2>The DirectX EndScene hook</h2>
+      <p>D3D9 games render a frame by issuing draw calls between
+      <code>BeginScene()</code> and <code>EndScene()</code>, then
+      <code>Present()</code> swaps the back buffer onto the screen.
+      Hooking <code>EndScene</code> gives you the device pointer
+      right before present — perfect spot to draw extras.</p>
+
+      <p>The standard pattern using MinHook:</p>
+
+      <pre><code>#include &lt;d3d9.h&gt;
+#include "MinHook.h"
+
+typedef HRESULT(__stdcall* EndScene_t)(IDirect3DDevice9*);
+EndScene_t oEndScene = nullptr;
+
+HRESULT __stdcall hkEndScene(IDirect3DDevice9* device) {
+    static ID3DXFont* font = nullptr;
+    if (!font) {
+        D3DXCreateFontA(device, 14, 0, FW_NORMAL, 1, FALSE,
+                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+                        "Arial", &font);
+    }
+
+    // Iterate enemies, project their world coords to screen, draw.
+    for (auto& e : iter_enemies()) {
+        if (!e.alive) continue;
+        D3DXVECTOR3 screen, world(e.x, e.y, e.z);
+        D3DXVec3Project(&screen, &world, nullptr, nullptr, nullptr,
+                        &g_view_proj, viewport_w, viewport_h);
+        if (screen.z &gt; 1.0f) continue;   // behind camera
+        // Draw a box centered on the screen pos.
+        draw_rect(device, screen.x - 16, screen.y - 24, 32, 48,
+                  D3DCOLOR_ARGB(255, 0, 255, 255));
+        // Draw name + HP above.
+        char buf[64];
+        sprintf_s(buf, "%s %d", e.name, e.hp);
+        RECT r = { (LONG)screen.x, (LONG)(screen.y - 36),
+                   (LONG)screen.x + 200, (LONG)screen.y };
+        font-&gt;DrawTextA(nullptr, buf, -1, &r, DT_LEFT,
+                       D3DCOLOR_ARGB(255, 0, 255, 255));
+    }
+
+    return oEndScene(device);   // ALWAYS call original
+}
+
+void install_render_hook() {
+    void* endscene_addr = get_endscene_via_dummy_device();
+    MH_Initialize();
+    MH_CreateHook(endscene_addr, &hkEndScene, (void**)&oEndScene);
+    MH_EnableHook(endscene_addr);
+}</code></pre>
+
+      <p>That C++ matches the M26 simulator template line-for-line in
+      intent — register a callback, draw boxes around enemies, return
+      to the original code path.</p>
+
+      <h2>How D3DXVec3Project works</h2>
+      <p>Real games render in 3D. A player's HP cell tells you their
+      world coords <code>(x, y, z)</code>; the screen is 2D pixels.
+      <code>D3DXVec3Project</code> does the math:</p>
+
+      <ol>
+        <li>Multiply world coord by the view matrix → camera-space coord.</li>
+        <li>Multiply by projection matrix → clip-space coord.</li>
+        <li>Perspective-divide by w → normalized device coords.</li>
+        <li>Map [-1..1] to [0..viewport] → screen pixels.</li>
+      </ol>
+
+      <p>Output's <code>screen.z</code> tells you depth — 0 is at the
+      near plane, 1 is the far plane, &gt;1 means behind the camera
+      (skip these so you don't draw enemies who aren't visible).</p>
+
+      <p>You feed it the same view + projection matrices the game uses.
+      For AssaultCube specifically those live at
+      <code>ac_client.exe + 0x17DFD0</code> as a 4x4 float matrix —
+      see the bridge article.</p>
+
+      <p>The simulator skips this because the map is flat 2D — tile
+      coords map directly to pixels via <code>tile_size()</code>.
+      Real D3D9 you do the matrix math; the technique on top is
+      identical.</p>
+
+      <h2>Getting the EndScene address (the dummy-device trick)</h2>
+      <p><code>EndScene</code> is a virtual method on
+      <code>IDirect3DDevice9</code>. Each device instance has a
+      vtable; the same vtable is shared across all devices. So you
+      can:</p>
+
+      <ol>
+        <li>Create a hidden window with <code>CreateWindowEx</code>.</li>
+        <li><code>Direct3DCreate9(D3D_SDK_VERSION)</code> for an interface.</li>
+        <li>Call <code>CreateDevice</code> with that hidden window
+            as the focus window — produces a real device.</li>
+        <li>Read its vtable: <code>void** vtbl = *(void***)device;</code></li>
+        <li><code>EndScene</code> is at vtable index 42 (well-known D3D9 offset).
+            <code>void* endscene = vtbl[42];</code></li>
+        <li>Release the device. You only needed it for the address.</li>
+      </ol>
+
+      <p>That's exactly the imports CombatArms.dll exposed
+      (RegisterClassExA, CreateWindowExA, Direct3DCreate9,
+      DestroyWindow) — they're the dummy-window dance.</p>
+
+      <h2>What else render hooks unlock</h2>
+      <ul>
+        <li><strong>Bone ESP</strong> — project each bone of the enemy's
+            skeleton, draw lines between them. Skeleton outlines
+            visible through walls.</li>
+        <li><strong>Tracers</strong> — line from player crosshair to
+            each enemy. Helps with snap-aim.</li>
+        <li><strong>Distance / health bars</strong> — text at each
+            projected position.</li>
+        <li><strong>Crosshair forcing</strong> — a custom crosshair
+            drawn dead-center, regardless of the game's setting.</li>
+        <li><strong>Field-of-view circles</strong> — debug overlay
+            for aimbot FOV, helps tune.</li>
+        <li><strong>Spectator warnings</strong> — when a spectator
+            joins the game, the overlay shows a banner so you can
+            disable cheats temporarily.</li>
+      </ul>
+
+      <h2>Defenses that target this</h2>
+      <ul>
+        <li><strong>Hook detection</strong> — anti-cheat reads the
+            first few bytes of EndScene and checks for the JMP
+            instruction MinHook installed. Defeated by trampoline
+            inlining or by hooking earlier in the call chain.</li>
+        <li><strong>VTable integrity</strong> — anti-cheat hashes
+            the vtable at startup, re-checks. Vtable swap detected.
+            Defeated by patching the function epilogue rather than
+            the vtable entry.</li>
+        <li><strong>Obscure render path</strong> — modern games use
+            D3D11/D3D12, not D3D9. <code>EndScene</code> doesn't
+            exist on those — you hook <code>Present</code> on
+            <code>IDXGISwapChain</code> instead. Same idea, different
+            vtable index.</li>
+        <li><strong>Server-side validation of "could the player see
+            that enemy?"</strong> — even with a perfect render hook
+            showing enemies through walls, server-side culling means
+            you can SEE them but can't easily hit them. Combined
+            attacks needed (ESP + aimbot prediction).</li>
+      </ul>
+
+      <h2>How M26 simulates this</h2>
+      <p><code>register_render_hook(fn)</code> pushes fn onto a list
+      that <code>AssaultZone._draw()</code> iterates after all the
+      game's drawing is done. fn gets the canvas 2D context plus a
+      sim helper exposing <code>enemies()</code>,
+      <code>player()</code>, <code>tile_size()</code>,
+      <code>tile_to_screen(x,y)</code>.</p>
+
+      <p>Mission setup forces the M13 data-side approach to fail:
+      <code>render.espVisible</code> is frozen at 0 by simulated
+      anti-cheat. The flag flip from M13 bounces. The render hook
+      bypasses the whole fight by drawing outside the engine's
+      flag-checking code path.</p>
+
+      <p>Win condition explicitly checks both: render hook installed
+      AND <code>render.espVisible</code> still 0 (proves the player
+      didn't unfreeze the cell — they really used the hook).</p>
+    `,
+  },
+  {
     id: "dll-auto-injection",
     title: "Auto-Injection — How Cheats Load Themselves",
     brief: "The four ways a DLL ends up in the game's process without you babysitting an injector each time.",

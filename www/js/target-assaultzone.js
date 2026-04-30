@@ -931,6 +931,40 @@ export class AssaultZone {
     if (this.radarActive) {
       this._drawRadar(ctx, s);
     }
+
+    // M26 RENDER HOOK — call any DLL-registered render hooks AFTER all
+    // game-side drawing. They get the canvas ctx + a sim helper. This
+    // is the simulator equivalent of an EndScene detour: your code
+    // runs after the game's last draw call, before the frame presents.
+    const dll = (typeof window !== "undefined" && window.__hw)
+      ? window.__hw.dll : null;
+    if (dll && dll.renderHooks && dll.renderHooks.length > 0) {
+      const sim = this._makeSimHelpers();
+      for (const hook of dll.renderHooks) {
+        try { hook(ctx, sim); }
+        catch (e) {
+          if (dll.log) dll.log("[render_hook error] " + e.message);
+        }
+      }
+    }
+  }
+
+  /** Helper object passed to render hooks. Abstracts the world-to-
+   *  screen math and entity enumeration so the player's hook is
+   *  short and clear. Real-world equivalent: D3DXVec3Project +
+   *  iterating the entity-list pointer. */
+  _makeSimHelpers() {
+    const T = TILE * (this.scale || 1);
+    return {
+      enemies: () => this.enemyManager.enemies.map(e => ({
+        id: e.id, name: e.name, x: e.x, y: e.y, hp: e.hp, alive: !!e.alive,
+      })),
+      player: () => ({
+        x: this.player.x, y: this.player.y, hp: this.player.hp,
+      }),
+      tile_size: () => T,
+      tile_to_screen: (x, y) => [x * T, y * T],
+    };
   }
 
   _drawRadar(ctx, s) {

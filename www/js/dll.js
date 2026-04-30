@@ -42,6 +42,16 @@ export class DllRuntime {
      *  reads this and renders a checkbox per entry; checked entries
      *  have their tickFn invoked every frame. */
     this.cheats = [];
+    /** Render hooks — registered via register_render_hook(fn). Each fn
+     *  is called every frame from inside AssaultZone._draw() AFTER the
+     *  game has drawn its frame. Receives (ctx, sim) — ctx is the
+     *  Canvas 2D context, sim is a helper object with enemies(),
+     *  player(), tile_size(), tile_to_screen(x, y).
+     *
+     *  Real-world equivalent: a MinHook detour on
+     *  IDirect3DDevice9::EndScene that draws extra geometry between
+     *  the game's last draw call and the device's Present. */
+    this.renderHooks = [];
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -74,6 +84,19 @@ export class DllRuntime {
       freeze_label:  (label) => memory.setFrozen(memory.addressOfLabel(label), true),
       find_pointers_to: (addr) => memory.findPointersTo(addr, 0x80, 4),
       log:           (msg) => this.log(String(msg)),
+      // M26 — install a render hook. Every frame, after the game
+      // finishes drawing, fn is called with (ctx, sim). ctx is the
+      // canvas 2D context. sim has enemies(), player(),
+      // tile_size(), tile_to_screen(x, y). Draw whatever you want.
+      // Real-world equivalent: MinHook detour on EndScene.
+      register_render_hook: (fn) => {
+        if (typeof fn !== "function") {
+          this.log("[register_render_hook] fn must be a function");
+          return;
+        }
+        this.renderHooks.push(fn);
+        this._emit();
+      },
       // M23 — register a cheat in the in-game menu. The menu pops up
       // on DELETE key (or the menu button). Checked cheats invoke
       // their tickFn each frame after the user's onTick.
@@ -129,6 +152,7 @@ return {
         "read", "write", "freeze", "unfreeze", "is_frozen",
         "addr_of", "read_label", "write_label", "freeze_label",
         "find_pointers_to", "log", "register_cheat",
+        "register_render_hook",
         wrapped
       );
     } catch (e) {
@@ -140,7 +164,8 @@ return {
       result = factory(
         a.read, a.write, a.freeze, a.unfreeze, a.is_frozen,
         a.addr_of, a.read_label, a.write_label, a.freeze_label,
-        a.find_pointers_to, a.log, a.register_cheat
+        a.find_pointers_to, a.log, a.register_cheat,
+        a.register_render_hook
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
@@ -209,7 +234,8 @@ return {
     this.running = false;
     if (this._rafId) cancelAnimationFrame(this._rafId);
     this._rafId = 0;
-    this.cheats = [];   // clear registered cheats — re-inject re-registers
+    this.cheats = [];        // clear registered cheats — re-inject re-registers
+    this.renderHooks = [];   // clear render hooks
     this.log("DLL ejected");
     this._emit();
   }
