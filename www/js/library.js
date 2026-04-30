@@ -6,6 +6,158 @@
 
 const ARTICLES = [
   {
+    id: "behavioral-evasion",
+    title: "Behavioral Evasion — Making the Cheat Look Human",
+    brief: "Why pro cheats add jitter, reaction delay, miss-on-purpose. The statistical layer of the arms race.",
+    body: `
+      <h2>Why this exists</h2>
+      <p>M32 covered SIGNATURE-based detection: AC reads your DLL,
+      spots known strings, flags. Defeated by string obfuscation.</p>
+
+      <p>Behavioral detection is the next layer up. Even with a
+      perfectly clean DLL — no suspicious strings, no telltale
+      imports — the AC watches what your INPUTS LOOK LIKE. A
+      signature scan can't catch your aimbot if the strings are
+      mangled. But if your aimbot snaps the crosshair from one
+      enemy to another in a single frame, then snaps to a third
+      enemy 16ms later, that's a behavior no human can produce.</p>
+
+      <h2>What the detector watches</h2>
+      <p>Real behavioral systems analyze multiple input streams:</p>
+
+      <h3>Mouse delta patterns</h3>
+      <ul>
+        <li><strong>Sub-pixel precision</strong>: real mouse sensors
+            generate jitter at the optical level. Perfect straight
+            lines or perfectly identical deltas across multiple
+            shots are a hardware signature humans don't make.</li>
+        <li><strong>Acceleration curves</strong>: human muscle
+            movement follows characteristic acceleration profiles.
+            Bots that linearly interpolate from current crosshair
+            to target position have linear acceleration — wrong
+            shape.</li>
+        <li><strong>Overshoot + correction</strong>: humans aim
+            past the target slightly and correct back. Bots
+            usually land exactly on target every time. Statistical
+            absence of overshoot is suspicious.</li>
+      </ul>
+
+      <h3>Reaction timing</h3>
+      <ul>
+        <li><strong>Onset latency</strong>: time between an enemy
+            appearing in your field of view and your crosshair
+            beginning to move. Humans average 200ms (visual
+            perception + motor response). Bots hit ~16ms (one
+            frame).</li>
+        <li><strong>Reaction-time variance</strong>: a real human's
+            reaction times follow a distribution (~80ms standard
+            deviation around the mean). Bots have either zero
+            variance (always exactly N ms) or wrong-shaped variance
+            (uniform random instead of right-skewed normal).</li>
+      </ul>
+
+      <h3>Tracking accuracy</h3>
+      <ul>
+        <li><strong>Through occlusion</strong>: a human loses
+            tracking when an enemy goes behind a wall. Bots that
+            keep crosshair-on-enemy through walls get caught (real
+            data: the enemy isn't on screen, your crosshair shouldn't
+            know where they are).</li>
+        <li><strong>Microcorrections</strong>: humans constantly
+            twitch the mouse, even at rest. Periods of perfectly
+            still cursor are robotic.</li>
+        <li><strong>Streaks</strong>: humans miss occasionally
+            even with practice. Bots that hit 100% of shots over
+            long periods don't match human distributions.</li>
+      </ul>
+
+      <h2>The standard countermeasures</h2>
+
+      <h3>Reaction delay</h3>
+      <p>Don't update the aimbot's target every frame. Instead,
+      pick a random delay between 180-260ms, and only update on
+      that interval. Real M33 template:</p>
+
+      <pre><code>let lastSwitchAt = 0;
+function aimbot_tick() {
+    const now = performance.now();
+    const reactionMs = 180 + Math.random() * 80;
+    if (now - lastSwitchAt < reactionMs) return;
+    lastSwitchAt = now;
+
+    const target = pick_closest_enemy();
+    write_label("crosshair.target", target.id);
+}</code></pre>
+
+      <h3>Jitter (target picking)</h3>
+      <p>Don't always pick the closest enemy. 70% of the time pick
+      the closest, 30% pick the SECOND-closest. Or randomize by
+      threat — most-dangerous-enemy heuristic. The variance makes
+      your target selection look like priority-ordering humans
+      consciously do.</p>
+
+      <h3>Mouse curve smoothing</h3>
+      <p>Don't snap directly to target. Move along a bezier curve
+      with humanlike acceleration profile (slow-start, fast-middle,
+      slow-finish — like a real arm motion):</p>
+
+      <pre><code>// Pseudocode — interpolate from current crosshair to target
+// over 80-150ms with cubic ease-in-out, plus ±2px random jitter
+// each tick.
+function smooth_aim(target_x, target_y) {
+    const dur = 80 + Math.random() * 70;
+    const steps = dur / 16;
+    for (let i = 0; i < steps; i++) {
+        const t = ease_in_out_cubic(i / steps);
+        const x = lerp(current_x, target_x, t) + random_jitter(2);
+        const y = lerp(current_y, target_y, t) + random_jitter(2);
+        await sleep(16);
+        write_mouse_pos(x, y);
+    }
+}</code></pre>
+
+      <h3>Miss on purpose</h3>
+      <p>A bot that hits 99% of shots over 100 hours is suspicious.
+      Pro cheats randomly drop ~20% of shots — adds variance to
+      hit-rate distributions, makes you look like a skilled human
+      rather than a perfect machine. Counterintuitive, but it
+      works.</p>
+
+      <h3>Activation gating</h3>
+      <p>Don't run the aimbot on every shot. Activate only when:</p>
+      <ul>
+        <li>Enemy enters your FOV (180° front cone)</li>
+        <li>You've been holding the trigger or aim button</li>
+        <li>The enemy is within typical engagement range</li>
+      </ul>
+      <p>Effect: when an enemy is OUT of normal aim range, your
+      crosshair doesn't track them. Removes the 'tracking through
+      walls' signal.</p>
+
+      <h2>How M33 simulates this</h2>
+      <p>The behavioral detector watches <code>crosshair.target</code>
+      and counts switches in a 1.5s sliding window. >5 switches =
+      inhuman → violations++. The default M28 aimbot updates
+      crosshair.target every frame, so as enemies move it switches
+      constantly — racks violations in 2 seconds.</p>
+
+      <p>The M33 template adds reaction delay + 30% second-closest
+      jitter. Same aim-snap effect over time, very different per-
+      tick signal. Detector stays calm, you still drop 4 contacts.</p>
+
+      <h2>Where this leaves competitive games</h2>
+      <p>Modern AC products have multiple detection layers running
+      simultaneously: signature + behavioral + statistical + hardware.
+      Defeating one isn't enough. Pro cheats invest months tuning
+      humanization curves; that's a full-time engineering effort.</p>
+
+      <p>For AssaultCube the lesson is conceptual — AC ships no
+      behavioral detection so you don't NEED humanization there.
+      But understanding the pattern lets you build the AC side if
+      you ever go that direction (defensive game-security work).</p>
+    `,
+  },
+  {
     id: "modern-ac-conceptual-tour",
     title: "Modern Anti-Cheat — A Conceptual Tour",
     brief: "What kernel-level AC actually does, why your sim DLLs would die on real systems, and where the arms race lives. No real signatures, all concepts.",

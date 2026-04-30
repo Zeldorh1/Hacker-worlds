@@ -123,6 +123,24 @@ export class DllRuntime {
         this.packetHooks.push({ direction, fn });
         this._emit();
       },
+      // M35 — inject a packet directly into the network pipeline as
+      // if the simulator generated it. direction is "send" or "recv".
+      // Replay attack territory: capture a packet via recv-hook,
+      // re-inject it later to claim repeat credit. Real-world
+      // equivalent: replaying a captured 'kill' or 'level up' packet
+      // against a server with no sequence-number validation.
+      inject_packet: (direction, pkt) => {
+        const target = (typeof window !== "undefined" && window.__hw)
+          ? window.__hw.target : null;
+        if (!target || !target.network || !target.network.enabled) {
+          this.log("[inject_packet] no network target available");
+          return false;
+        }
+        if (direction === "send") return target._sendPacket(pkt);
+        if (direction === "recv") return target._recvPacket(pkt);
+        this.log("[inject_packet] direction must be 'send' or 'recv'");
+        return false;
+      },
       // M27 STAGER — load a payload string as if it were a second DLL.
       // The stager DLL's job is to bootstrap, then call this with the
       // real cheat code (which can be embedded as a string literal,
@@ -147,6 +165,7 @@ export class DllRuntime {
             "addr_of", "read_label", "write_label", "freeze_label",
             "find_pointers_to", "log", "register_cheat",
             "register_render_hook", "register_packet_hook", "load_payload",
+            "inject_packet",
             wrapped
           );
           const a = this._makeApi();
@@ -154,7 +173,8 @@ export class DllRuntime {
             a.read, a.write, a.freeze, a.unfreeze, a.is_frozen,
             a.addr_of, a.read_label, a.write_label, a.freeze_label,
             a.find_pointers_to, a.log, a.register_cheat,
-            a.register_render_hook, a.register_packet_hook, a.load_payload
+            a.register_render_hook, a.register_packet_hook, a.load_payload,
+            a.inject_packet
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -223,6 +243,7 @@ return {
         "addr_of", "read_label", "write_label", "freeze_label",
         "find_pointers_to", "log", "register_cheat",
         "register_render_hook", "register_packet_hook", "load_payload",
+        "inject_packet",
         wrapped
       );
     } catch (e) {
@@ -235,7 +256,8 @@ return {
         a.read, a.write, a.freeze, a.unfreeze, a.is_frozen,
         a.addr_of, a.read_label, a.write_label, a.freeze_label,
         a.find_pointers_to, a.log, a.register_cheat,
-        a.register_render_hook, a.register_packet_hook, a.load_payload
+        a.register_render_hook, a.register_packet_hook, a.load_payload,
+        a.inject_packet
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };

@@ -93,6 +93,10 @@ export class AssaultZone {
       pendingDamage: 0,
       lastTickAt: 0,
       tickIntervalMs: 1500,
+      // M34: when true, server-side validates incoming damage
+      // packets against current weapon stats. Crafted packets
+      // claiming damage > weapon.damage * 2 get clamped down.
+      validateDamage: false,
     };
 
     // M30+ NETWORK — packet emission for missions that opt in via
@@ -115,6 +119,20 @@ export class AssaultZone {
       scanIntervalMs: 2000,
       violations: 0,
       lastHits: [],
+    };
+
+    // M33 — behavioral detector. Tracks recent crosshair-target
+    // changes. Bots that snap to a new target every frame (zero
+    // reaction delay) generate a stream of instant changes that
+    // humans can't physically produce. Tracks a sliding window of
+    // recent target switches; violations climb when the rate is
+    // unrealistic.
+    this.behavioral = {
+      enabled: false,
+      recentSwitches: [],     // timestamps of recent target changes
+      lastTargetId: 0,
+      violations: 0,
+      lastSampleAt: 0,
     };
 
     // Player stats live in a contiguous 'player struct' in fake memory.
@@ -392,6 +410,11 @@ export class AssaultZone {
     this.acScanner.enabled = false;
     this.acScanner.violations = 0;
     this.acScanner.lastHits = [];
+    this.behavioral.enabled = false;
+    this.behavioral.recentSwitches = [];
+    this.behavioral.violations = 0;
+    this.behavioral.lastTargetId = 0;
+    this.server.validateDamage = false;
     codeSegment.reset();
     document.getElementById("hud-server")?.setAttribute("hidden", "");
     // Unfreeze any cells from a previous run.
@@ -495,6 +518,31 @@ export class AssaultZone {
   }
   disableAcScanner() {
     this.acScanner.enabled = false;
+  }
+
+  // M33 — behavioral detector. Watches crosshair target switches.
+  // Bots snap to new targets every frame (no reaction delay).
+  // Humans don't.
+  enableBehavioralDetector() {
+    this.behavioral.enabled = true;
+    this.behavioral.recentSwitches = [];
+    this.behavioral.lastTargetId = this.crosshairTargetId;
+    this.behavioral.violations = 0;
+    this.behavioral.lastSampleAt = performance.now();
+  }
+  disableBehavioralDetector() {
+    this.behavioral.enabled = false;
+  }
+
+  // M34 — server-side damage validation. When enabled, damage
+  // packets get clamped to weapon.damage * 2 max before being
+  // applied. M31's craft-to-999 fails directly; player has to
+  // also boost weapon.damage so the cap rises.
+  enableServerValidation() {
+    this.server.validateDamage = true;
+  }
+  disableServerValidation() {
+    this.server.validateDamage = false;
   }
 
   /** Run an outgoing packet through DLL send-hooks. Returns the
@@ -617,7 +665,16 @@ export class AssaultZone {
         type: "damage", target: e.id, amount: dmg, t: now,
       });
       if (pkt && typeof pkt.amount === "number") {
-        const dmgApplied = Math.max(0, pkt.amount | 0);
+        // M34 — server-side validation. Clamp damage to
+        // weapon.damage * 2 so crafted 'amount=999' packets get
+        // shaved down. Player workaround: boost weapon.damage
+        // BEFORE firing so the cap is higher.
+        let amount = pkt.amount;
+        if (this.server.validateDamage) {
+          const maxAllowed = Math.max(1, (this.weapon.damage * 2) | 0);
+          if (amount > maxAllowed) amount = maxAllowed;
+        }
+        const dmgApplied = Math.max(0, amount | 0);
         const targetEnemy = (pkt.target !== e.id)
           ? this.enemyManager.enemies.find(x => x.id === pkt.target && x.alive)
           : e;
@@ -767,6 +824,26 @@ export class AssaultZone {
     if (this.enemiesActive) {
       this.enemyManager.step(now);
       this._updateCrosshair();
+    }
+
+    // M33 — behavioral detector. Records target switches and
+    // counts how many fired in the last 1.5s. >5 switches/1.5s
+    // is bot-like (humans take ~200ms minimum to react and switch
+    // targets); each excess switch adds a violation.
+    if (this.behavioral.enabled && now - this.behavioral.lastSampleAt > 100) {
+      this.behavioral.lastSampleAt = now;
+      const cur = this.crosshairTargetId;
+      if (cur !== this.behavioral.lastTargetId && cur !== 0) {
+        this.behavioral.recentSwitches.push(now);
+        this.behavioral.lastTargetId = cur;
+      }
+      // Drop entries older than 1.5s.
+      const cutoff = now - 1500;
+      this.behavioral.recentSwitches = this.behavioral.recentSwitches.filter(t => t >= cutoff);
+      // 5+ switches in a 1.5s window = inhuman.
+      if (this.behavioral.recentSwitches.length > 5) {
+        this.behavioral.violations++;
+      }
     }
 
     // M32 — kernel-AC scanner concept. Every scanIntervalMs, inspect
