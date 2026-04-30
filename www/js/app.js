@@ -434,11 +434,30 @@ async function boot() {
     const $tabDll = document.getElementById("tab-dll");
     const $dllCode = document.getElementById("dll-code");
     if ($tabDll) $tabDll.hidden = !m.dll;
-    if (m.dll && $dllCode && m.dllTemplate) {
-      $dllCode.value = m.dllTemplate;
+    if (m.dll && $dllCode) {
+      // M25 AUTO-INJECT: prefer the player's last-compiled source
+      // (persisted on every successful compile). Falls back to the
+      // mission's template if nothing's saved.
+      const savedSource = dllRuntime.getSavedSource();
+      const source = (m.autoInject && savedSource) ? savedSource : m.dllTemplate;
+      if (source) $dllCode.value = source;
       const $status = document.getElementById("dll-status");
       if ($status) { $status.textContent = "not compiled"; $status.className = "dll-status"; }
       dllRuntime.clearConsole();
+
+      // Auto-compile + auto-inject for missions that opt in. Mirrors
+      // the DLL hijacking pattern: your code is already loaded before
+      // the game logic gets a chance to run.
+      if (m.autoInject && source) {
+        const result = dllRuntime.compile(source);
+        if (result.ok) {
+          dllRuntime.inject();
+          if ($status) { $status.textContent = "auto-injected — running"; $status.className = "dll-status running"; }
+        } else if ($status) {
+          $status.textContent = "auto-inject failed: " + result.error;
+          $status.className = "dll-status error";
+        }
+      }
     }
 
     // Cheat menu button — only visible for missions that opt in.

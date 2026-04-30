@@ -6,6 +6,154 @@
 
 const ARTICLES = [
   {
+    id: "dll-auto-injection",
+    title: "Auto-Injection — How Cheats Load Themselves",
+    brief: "The four ways a DLL ends up in the game's process without you babysitting an injector each time.",
+    body: `
+      <h2>The end state you want</h2>
+      <p>Manual injection (CreateRemoteThread + LoadLibraryA from a
+      separate loader EXE) is fine for development. For shipping you
+      want the cheat to load itself — start the game, your DLL is
+      already running by the time the main menu draws. Four common
+      patterns get you there, in roughly increasing order of
+      sophistication:</p>
+
+      <h2>1. DLL hijacking (the easy classic)</h2>
+      <p>Find a DLL the game loads at startup. Replace it with your
+      own DLL that:</p>
+      <ol>
+        <li>Forwards every export to the original (renamed to
+            something like <code>SDL_orig.dll</code>).</li>
+        <li>Spawns your cheat thread from <code>DllMain</code>.</li>
+      </ol>
+
+      <p>For AssaultCube, <code>SDL.dll</code> is a perfect target.
+      Rename original → <code>SDL_orig.dll</code>. Your DLL exports
+      every SDL function as a forwarder:</p>
+
+      <pre><code>// dllexports.def
+LIBRARY SDL
+EXPORTS
+  SDL_Init = SDL_orig.SDL_Init
+  SDL_Quit = SDL_orig.SDL_Quit
+  SDL_PollEvent = SDL_orig.SDL_PollEvent
+  ... (every export from the real SDL.dll)</code></pre>
+
+      <p>Tools like <strong>DLL Proxy Generator</strong> or
+      <strong>Spartacus</strong> auto-generate the .def file from
+      the original DLL's exports.</p>
+
+      <p><strong>Pros:</strong> trivial to set up, no injector EXE,
+      works on every game launch automatically.<br>
+      <strong>Cons:</strong> AC's checksum (or any game's) might
+      detect the size/hash mismatch on the patched SDL.dll. Anti-
+      cheats sometimes scan loaded module names for known cheat
+      DLL signatures.</p>
+
+      <h2>2. AppInit_DLLs / IFEO injection (Windows-wide)</h2>
+      <p>Windows has a registry key that auto-loads a DLL into every
+      user-mode process:</p>
+      <pre><code>HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows
+  AppInit_DLLs = "C:\\path\\to\\cheat.dll"
+  LoadAppInit_DLLs = 1</code></pre>
+
+      <p>Or per-EXE via Image File Execution Options:</p>
+      <pre><code>HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\ac_client.exe
+  AppCertDlls or shim ...</code></pre>
+
+      <p><strong>Pros:</strong> survives game updates that replace
+      DLLs.<br>
+      <strong>Cons:</strong> Requires admin, very visible to AV /
+      EDR, modern Windows defaults to ignoring AppInit_DLLs unless
+      Secure Boot is off.</p>
+
+      <h2>3. Loader EXE that watches for the process</h2>
+      <p>A small <code>watcher.exe</code> sits running in the
+      background, polls the process list every second:</p>
+      <pre><code>// watcher.cpp — runs as a tray app or hidden window
+while (true) {
+    DWORD pid = find_pid("ac_client.exe");
+    if (pid && !already_injected) {
+        Sleep(2000);   // let game finish init
+        inject(pid, "cheat.dll");
+        already_injected = true;
+    }
+    if (!pid) already_injected = false;
+    Sleep(500);
+}</code></pre>
+
+      <p><strong>Pros:</strong> no game-folder modifications,
+      survives updates that change DLL hashes, easy to develop.<br>
+      <strong>Cons:</strong> watcher process is visible in Task
+      Manager, requires user to run it (or set as a startup item).</p>
+
+      <h2>4. Process hollowing (the heavy option)</h2>
+      <p>Start the game in suspended mode, replace its loaded image
+      with your own modified version that has the cheat code baked
+      in, resume.</p>
+
+      <pre><code>STARTUPINFOA si = { sizeof(si) };
+PROCESS_INFORMATION pi;
+CreateProcessA("ac_client.exe", nullptr, nullptr, nullptr, FALSE,
+               CREATE_SUSPENDED, nullptr, nullptr, &si, &pi);
+// Modify pi.hProcess's memory (unmap, replace, fix entry point)
+ResumeThread(pi.hThread);</code></pre>
+
+      <p><strong>Pros:</strong> Process appears 'clean' to most
+      detection (no extra threads, no extra modules, no remote
+      writes after launch).<br>
+      <strong>Cons:</strong> Hard to write, easy to crash the game,
+      requires deep PE format knowledge.</p>
+
+      <h2>5. Manual mapping (no LoadLibrary trace)</h2>
+      <p>Don't call <code>LoadLibrary</code> at all. Allocate
+      memory in the target, write the DLL bytes there, manually
+      perform import resolution + relocation fixups + call DllMain.
+      The DLL never appears in the loaded module list — anti-cheat
+      scans that enumerate modules see nothing.</p>
+
+      <p><strong>Pros:</strong> Best stealth.<br>
+      <strong>Cons:</strong> ~200 lines of careful PE-parsing code.
+      Worth it for serious cheats; overkill for AC practice.</p>
+
+      <h2>How M25 simulates this</h2>
+      <p>Every successful DLL compile saves the source string to
+      <code>localStorage</code>. Missions with
+      <code>autoInject: true</code> read that source on launch,
+      pre-fill the editor, compile + inject before <code>start()</code>
+      runs. By the time the mission's gauntlet begins, the DLL is
+      already running.</p>
+
+      <p>That maps to options #1 (DLL hijacking) and #3 (loader-on-
+      startup) in the table above — the practical patterns most
+      hobby cheats actually ship with.</p>
+
+      <h2>Defenses against auto-injection</h2>
+      <ul>
+        <li><strong>Module signature scanning</strong> — anti-cheat
+            walks the loaded module list at startup, hashes each one,
+            compares against a known-good list. DLL hijacking gets
+            caught here.</li>
+        <li><strong>Loader process detection</strong> — anti-cheat
+            looks for processes with names matching known cheat
+            loaders. Watcher EXE pattern gets caught.</li>
+        <li><strong>Code segment integrity check</strong> — game's
+            own .text bytes get CRC'd. Manual mapping that doesn't
+            patch the game still passes; mapping that does fails.</li>
+        <li><strong>Kernel-mode driver protection</strong> — Easy
+            Anti-Cheat / BattlEye / Vanguard run in ring 0, can see
+            user-mode operations the game itself can't. Beats
+            everything in this list except the most advanced
+            kernel-side bypasses (out of scope here).</li>
+      </ul>
+
+      <p>For AssaultCube and similar offline-friendly targets, you
+      don't fight any of this. DLL hijacking via SDL.dll is fine.
+      For competitive online games, the auto-inject pattern is
+      where most amateur cheats die.</p>
+    `,
+  },
+  {
     id: "real-world-bridge-assaultcube",
     title: "Real-World Bridge — From the Simulator to AssaultCube",
     brief: "The whole stack. Visual Studio setup, DllMain skeleton, AC offsets, menu, ESP, code patching — actual buildable C++.",

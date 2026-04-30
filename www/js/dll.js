@@ -22,6 +22,11 @@
 import { memory } from "./sim-memory.js";
 
 const MAX_CONSOLE_LINES = 200;
+// localStorage key for the last successfully-compiled DLL source.
+// M25 AUTO-INJECT reads this to auto-load on mission start, mirroring
+// the DLL-hijacking pattern where your code persists across game
+// restarts.
+const SAVED_SOURCE_KEY = "hw.dll.lastSource";
 
 export class DllRuntime {
   constructor() {
@@ -144,8 +149,23 @@ return {
       return { ok: false, error: "no onInject() or onTick() function defined" };
     }
     this.compiled = result;
+    // Persist source on successful compile — M25 AUTO-INJECT picks
+    // this up on mission start to pre-load + auto-inject. Real-world
+    // equivalent: the DLL file sitting on disk between game launches.
+    try { localStorage.setItem(SAVED_SOURCE_KEY, source); } catch {}
     this._emit();
     return { ok: true };
+  }
+
+  /** Read the last successfully-compiled source from localStorage.
+   *  M25 AUTO-INJECT uses this. Returns null if nothing saved. */
+  getSavedSource() {
+    try { return localStorage.getItem(SAVED_SOURCE_KEY); }
+    catch { return null; }
+  }
+  hasSavedSource() { return !!this.getSavedSource(); }
+  clearSavedSource() {
+    try { localStorage.removeItem(SAVED_SOURCE_KEY); } catch {}
   }
 
   inject() {
