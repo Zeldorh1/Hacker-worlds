@@ -810,6 +810,8 @@ body[data-mode="hub"] .violation-bar { display: none; }
   min-width: 0;
 }
 .ptr-results { max-height: 180px; }
+.browse-results { max-height: 280px; }
+.browse-results .browse-base { background: rgba(34, 211, 238, 0.08); border-left: 2px solid var(--accent-2); }
 
 /* Watchlist chain entries: subtle different background tint. */
 .watchlist li.chain {

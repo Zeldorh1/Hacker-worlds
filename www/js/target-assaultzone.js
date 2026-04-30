@@ -1,7 +1,7 @@
 // AssaultZone — minimal top-down target sim. The player has X / Y / HP / Ammo
 // stats that get bound to SimMemory addresses so the Scanner can find them.
 
-import { memory } from "./sim-memory.js";
+import { memory, SimMemory } from "./sim-memory.js";
 import { EnemyManager } from "./enemies.js";
 
 const TILE = 16;
@@ -76,16 +76,29 @@ export class AssaultZone {
     this.bleedIntervalMs = 1500;
     this.lastBleedAt = 0;
 
-    // Bind player stats to fake memory addresses. The Scanner sees these
-    // as ordinary 4-byte ints among thousands of noise addresses.
-    this.addrX    = memory.bindGameValue("player.x",    () => this.player.x,    v => { this.player.x = v; });
-    this.addrY    = memory.bindGameValue("player.y",    () => this.player.y,    v => { this.player.y = v; });
-    this.addrHP   = memory.bindGameValue("player.hp",   () => this.player.hp,   v => { this.player.hp = v; });
-    this.addrAmmo = memory.bindGameValue("player.ammo", () => this.player.ammo, v => { this.player.ammo = v; });
-    // M12 SPEED HACK — the movement cooldown is just another int. Find
-    // it, freeze it low, and the player walks faster than the engine
-    // expects. Real game equivalent: speed multiplier in player struct.
-    this.addrMoveCooldown = memory.bindGameValue("player.moveCooldownMs",
+    // Player stats live in a contiguous 'player struct' in fake memory.
+    // Real games do this — a single allocation holds every per-player
+    // value, and code accesses them via [base + offset]. M16 STRUCT
+    // DISCOVERY teaches the player to find one field, then walk the
+    // struct to discover the rest.
+    //
+    // Layout (5 ints = 20 bytes; reserve 64 to leave room for future fields):
+    //   +0x00  hp
+    //   +0x04  ammo
+    //   +0x08  x
+    //   +0x0C  y
+    //   +0x10  moveCooldownMs
+    this.playerStructBase = memory.reserveBlock(64, 1);
+    const PA = (off) => SimMemory.formatAddr(this.playerStructBase + off);
+    this.addrHP   = memory.bindGameValueAt(PA(0x00), "player.hp",
+      () => this.player.hp,   v => { this.player.hp = v; });
+    this.addrAmmo = memory.bindGameValueAt(PA(0x04), "player.ammo",
+      () => this.player.ammo, v => { this.player.ammo = v; });
+    this.addrX    = memory.bindGameValueAt(PA(0x08), "player.x",
+      () => this.player.x,    v => { this.player.x = v; });
+    this.addrY    = memory.bindGameValueAt(PA(0x0C), "player.y",
+      () => this.player.y,    v => { this.player.y = v; });
+    this.addrMoveCooldown = memory.bindGameValueAt(PA(0x10), "player.moveCooldownMs",
       () => this.moveCooldownMs,
       v => { this.moveCooldownMs = v; });
 

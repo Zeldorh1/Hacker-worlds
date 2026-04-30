@@ -45,6 +45,11 @@ export class Scanner {
     this.$pointerStatus  = root.querySelector("#pointer-status");
     this.$pointerResults = root.querySelector("#pointer-results");
 
+    this.$browseTarget   = root.querySelector("#browse-target");
+    this.$btnBrowse      = root.querySelector("#btn-browse");
+    this.$browseStatus   = root.querySelector("#browse-status");
+    this.$browseResults  = root.querySelector("#browse-results");
+
     this.$first.addEventListener("click", () => this.firstScan());
     this.$next.addEventListener("click",  () => this.nextScan());
     this.$reset.addEventListener("click", () => this.reset());
@@ -57,6 +62,9 @@ export class Scanner {
     }
     if (this.$btnFindPtr) {
       this.$btnFindPtr.addEventListener("click", () => this.findPointers());
+    }
+    if (this.$btnBrowse) {
+      this.$btnBrowse.addEventListener("click", () => this.browseMemory());
     }
 
     this.$tool     = root.querySelector("#tool-name");
@@ -242,6 +250,68 @@ export class Scanner {
         this.addChainToWatchlist(b.dataset.base, parseInt(b.dataset.off, 10));
       });
     });
+    if (this.audio) this.audio.scan();
+  }
+
+  // ---- Browse Memory ----
+  //
+  // Show a window of consecutive 4-byte cells around a base address,
+  // so the player can walk a struct by eye. Each row is one int32.
+  // Highlights labelled cells (player.hp, ammo, etc.) so the player
+  // can recognise that fields cluster in real game structs.
+
+  browseMemory() {
+    if (!this.$browseResults) return;
+    let target = (this.$browseTarget && this.$browseTarget.value || "").trim();
+    if (!target) {
+      // Default to the first watched DIRECT entry.
+      for (const [, entry] of this.watch) {
+        if (entry.type === "direct") { target = entry.addr; break; }
+      }
+    }
+    if (!target) {
+      this.$browseStatus.textContent = "No target — type a hex address or watch one first.";
+      return;
+    }
+    if (!target.toLowerCase().startsWith("0x")) target = "0x" + target;
+    const hex = target.slice(2).toUpperCase();
+    if (!/^[0-9A-F]+$/.test(hex)) {
+      this.$browseStatus.textContent = "Browse: not valid hex.";
+      return;
+    }
+    const padded = "0x" + hex.padStart(12, "0");
+    if (this.$browseTarget) this.$browseTarget.value = padded;
+    const baseN = SimMemory.addressToInt(padded);
+    if (!Number.isFinite(baseN)) {
+      this.$browseStatus.textContent = "Browse: address out of range.";
+      return;
+    }
+    // Walk -0x10 .. +0x40 from the base in 4-byte steps.
+    // We deliberately do NOT show field labels here — discovering
+    // which offset is which by recognising values is the lesson.
+    const startOff = -0x10;
+    const endOff   = 0x40;
+    const rows = [];
+    for (let off = startOff; off <= endOff; off += 4) {
+      const a = SimMemory.formatAddr(baseN + off);
+      const cell = memory.cells.get(a);
+      const value = cell ? cell.value : "—";
+      const offStr = (off >= 0 ? "+" : "-") + "0x" + Math.abs(off).toString(16).toUpperCase().padStart(2, "0");
+      rows.push({ addr: a, value, offStr, isBase: off === 0 });
+    }
+    this.lastBrowseBase = padded;
+    const html = rows.map(r => `
+      <li class="row-in${r.isBase ? " browse-base" : ""}">
+        <span class="addr">${r.offStr}  ${r.addr}</span>
+        <span class="val">${r.value}</span>
+        <button class="add" data-addr="${r.addr}">+ watch</button>
+      </li>
+    `).join("");
+    this.$browseResults.innerHTML = html;
+    this.$browseResults.querySelectorAll("button.add").forEach(b => {
+      b.addEventListener("click", () => this.addToWatchlist(b.dataset.addr));
+    });
+    this.$browseStatus.textContent = `Browsing ${padded}: ${rows.length} cells around it.`;
     if (this.audio) this.audio.scan();
   }
 

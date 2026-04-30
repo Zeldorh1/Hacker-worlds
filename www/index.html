@@ -152,6 +152,16 @@
             <ul id="pointer-results" class="scan-results ptr-results"></ul>
           </div>
 
+          <div class="ptr-section">
+            <div class="ptr-header">BROWSE MEMORY</div>
+            <div class="scanner-row ptr-row">
+              <input id="browse-target" type="text" placeholder="0x… (defaults to first watched)" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <button id="btn-browse">Browse</button>
+            </div>
+            <div id="browse-status" class="scan-status"></div>
+            <ul id="browse-results" class="scan-results browse-results"></ul>
+          </div>
+
           <div class="watchlist-header">Watchlist</div>
           <div class="scanner-row manual-row">
             <input id="manual-addr" type="text" placeholder="0x…  or  [0x…]+0x10" autocapitalize="off" autocorrect="off" spellcheck="false" />

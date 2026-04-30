@@ -6,6 +6,115 @@
 
 const ARTICLES = [
   {
+    id: "struct-discovery",
+    title: "How Trainers Actually Work — Player Struct Discovery",
+    brief: "Find one stat, walk the bytes, map the whole struct. The technique behind every game trainer ever shipped.",
+    body: `
+      <h2>The lesson the early missions hide</h2>
+      <p>M01 through M15 had you find each stat separately. HP one mission,
+      ammo another, speed in a third. That's a fine way to <em>learn</em> the
+      scan workflow, but it's not how anyone who ships a real trainer
+      actually works.</p>
+
+      <p>Here's how a trainer dev finds 30 player stats in a couple of hours
+      from a fresh game install:</p>
+
+      <h2>The struct insight</h2>
+      <p>Every per-player value lives in <strong>one struct</strong>, allocated
+      once when the level loads. Memory layout looks something like:</p>
+      <pre><code>struct Player {
+  int   hp;             // +0x00
+  int   maxHp;          // +0x04
+  int   shield;         // +0x08
+  int   ammo;           // +0x0C
+  int   maxAmmo;        // +0x10
+  float x, y, z;        // +0x14, +0x18, +0x1C
+  float yaw, pitch;     // +0x20, +0x24
+  int   weaponId;       // +0x28
+  int   killCount;      // +0x2C
+  int   deaths;         // +0x30
+  ...
+};</code></pre>
+
+      <p>Find <em>any one of these</em> via a scan, and you've located the
+      struct in memory. Every other field is right there — at base+offset.</p>
+
+      <h2>The full real-world workflow</h2>
+      <ol>
+        <li><strong>Find one easy field.</strong> HP usually. It's on the HUD,
+            it changes when you take damage, scan-narrow-watch it in 30 seconds.</li>
+        <li><strong>Browse the surrounding memory.</strong> In Cheat Engine:
+            right-click address → <em>Browse this memory region</em>. In x64dbg:
+            <em>Dump → Follow in dump</em>. Either way you see a hex dump
+            starting at your HP cell.</li>
+        <li><strong>Identify fields by their values.</strong> You know what to
+            look for. 100? Probably maxHp. A small int that matches your ammo
+            counter? Yep. Two consecutive floats that match your in-game
+            position? x and y. The values give the structure away.</li>
+        <li><strong>Build a static map.</strong> Write down (or save to your
+            CT file) every offset you can identify: <code>[base]+0x00 = hp</code>,
+            <code>[base]+0x0C = ammo</code>, etc.</li>
+        <li><strong>Find the static pointer to base.</strong> That's the M8
+            POINTER SCAN lesson. Once you have <code>game.exe + 0x???</code>
+            pointing to the player struct, every offset you mapped becomes
+            a permanent trainer entry that survives restarts.</li>
+      </ol>
+
+      <h2>Why this is so much faster than 30 separate scans</h2>
+      <p>Each individual scan-narrow takes 30s-2m of gameplay. 30 stats × 1m
+      average = 30 minutes if everything goes smoothly. Add re-scans when a
+      cell turns out to be wrong, and you're at 2 hours.</p>
+
+      <p>Struct discovery: 1 scan (HP) + 5 minutes browsing + offset math.
+      Total: 7-10 minutes for the same 30 stats. The rest of your session
+      is spent on the <em>second</em> level of indirection — finding the
+      static pointer chain so the trainer survives restarts.</p>
+
+      <h2>How to recognise field types in a dump</h2>
+      <table style="width:100%; border-collapse:collapse; margin: 0.5rem 0;">
+        <tr>
+          <th style="text-align:left; padding:0.3em 0;">What you see</th>
+          <th style="text-align:left; padding:0.3em 0;">Likely field</th>
+        </tr>
+        <tr><td>0 or 1</td><td>boolean (alive, ads, sprinting)</td></tr>
+        <tr><td>0..100, smooth changes</td><td>HP, shield, stamina (often int or normalized float)</td></tr>
+        <tr><td>0..maxAmmo</td><td>ammo or magazine</td></tr>
+        <tr><td>Pair of floats matching POS</td><td>x, y (or x, z depending on engine)</td></tr>
+        <tr><td>Float in [-π..π]</td><td>yaw / pitch / roll</td></tr>
+        <tr><td>Small positive int that increments slowly</td><td>kill count, level</td></tr>
+        <tr><td>Pointer-shaped value (looks like an address)</td><td>linked struct (current weapon, current target)</td></tr>
+      </table>
+
+      <h2>Common gotchas</h2>
+      <ul>
+        <li><strong>Multiple instances.</strong> If the game allocates a
+            struct per entity, you might be browsing an enemy struct, not
+            yours. Anchor on a unique-to-you field (your name as a string,
+            or HP if you're the only entity at exactly that value).</li>
+        <li><strong>Embedded structs.</strong> Position might be a
+            <code>struct Vec3</code> embedded inline, so x/y/z are actually
+            <code>+0x14, +0x18, +0x1C</code>. Read the offsets as triplets
+            of floats and they pop out.</li>
+        <li><strong>Padding.</strong> Compilers align fields to 4 or 8 bytes.
+            You might see "junk" 4-byte holes between fields. Skip them, the
+            next field is usually at the next aligned offset.</li>
+      </ul>
+
+      <h2>How M16 maps to this</h2>
+      <p>M16 STRUCT DISCOVERY puts your in-game player stats in a contiguous
+      simulator struct. You find HP via standard scan, browse with the new
+      BROWSE MEMORY tool, recognise sibling fields by their values (30 = ammo,
+      5 = your HUD POS, etc.), and watch the whole struct. The kicker:
+      <code>moveCooldownMs</code> — the M12 stat we said wasn't on the HUD —
+      is sitting right at +0x10. You don't have to do M12's full
+      Unknown-Initial-Value workflow ever again now that you can read the
+      struct directly.</p>
+
+      <p>That's the unlock: <strong>once you know how to find a struct,
+      hidden stats stop being hidden.</strong></p>
+    `,
+  },
+  {
     id: "unknown-initial-value",
     title: "When You Don't Know the Number",
     brief: "The Unknown Initial Value workflow — for stats the game refuses to show you.",

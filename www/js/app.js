@@ -230,6 +230,7 @@ async function boot() {
       scannerState: {
         lastResults: scanner.lastResults,
         lastPointerResults: scanner.lastPointerResults,
+        browseBase: scanner.lastBrowseBase,
       },
       watchSize: watchDirectEls.length,
       hasChain,
