@@ -6,6 +6,150 @@
 
 const ARTICLES = [
   {
+    id: "server-authority",
+    title: "When Memory Freezes Aren't Enough — Server-Side State",
+    brief: "Why your local HP freeze does nothing in multiplayer, and what actually works.",
+    body: `
+      <h2>The lesson M15 hides and M18 surfaces</h2>
+      <p>M15 GODMODE worked. You froze HP at 100, weathered the gauntlet,
+      walked out clean. That works because <em>the simulator's HP cell IS
+      the truth.</em> Single-player. Your machine, your memory, your call.</p>
+
+      <p>In multiplayer, that's not how it works. The server holds the
+      canonical state. Your client renders what the server tells it. If
+      you freeze your local HP at 100 in Apex Legends:</p>
+
+      <ul>
+        <li>Your screen still shows 100 HP — the cell is frozen.</li>
+        <li>The server still tracks 'real' HP behind the scenes.</li>
+        <li>30Hz network ticks deliver server state updates to your client.</li>
+        <li>Each update overwrites your local HP cell.</li>
+        <li>Your freeze re-applies on the next frame (60Hz wins over 30Hz).</li>
+        <li>Visually you're at 100 forever.</li>
+        <li>But the server's authoritative HP still drops as you take damage.</li>
+        <li>When server.HP &lt;= 0, server sends 'you died' message.</li>
+        <li>Client respects it. You die / respawn.</li>
+      </ul>
+
+      <p>Local memory edits are <strong>cosmetic</strong> in the
+      authoritative-server model. Welcome to multiplayer game hacking.</p>
+
+      <h2>Why server authority exists</h2>
+      <p>Trust. If clients held the truth, anyone could declare 'I have
+      999 HP' or 'my opponent died.' Multiplayer would be unplayable in
+      a week. So engines push the authoritative state to a machine the
+      cheater can't reach: the dedicated server (or a peer, in
+      peer-to-peer hosting).</p>
+
+      <p>Common authoritative state in real games:</p>
+      <ul>
+        <li>HP, shield, ammo (almost always server-side in competitive games)</li>
+        <li>Position (validated server-side; clients send inputs, server resolves)</li>
+        <li>Hit registration (which bullets connected, in what order)</li>
+        <li>Loot rolls (RNG happens server-side so clients can't peek)</li>
+        <li>Currency / inventory (anti-dupe critical)</li>
+      </ul>
+
+      <h2>Things you CAN still hack client-side</h2>
+      <p>Server-authoritative state isn't a death sentence for game hacking.
+      Plenty of state is still trusted to the client because the alternative
+      would cost too much bandwidth or latency:</p>
+      <ul>
+        <li><strong>Render flags</strong> — culling, fog, wallhacks. The
+            server can't tell you stopped occluding enemies behind walls.
+            (M13 ESP territory.)</li>
+        <li><strong>Crosshair position / aim assist</strong> — where you're
+            aiming is your input. Aimbots intercept input before it ships.</li>
+        <li><strong>Animation skipping</strong> — reload animation, weapon
+            switch. Local-only timing on most engines.</li>
+        <li><strong>Recoil pattern compensation</strong> — where the bullets
+            are visually drawn vs where the server thinks they went. M17
+            stuff that works fine in multiplayer.</li>
+        <li><strong>Movement prediction smoothing</strong> — how your
+            character animates between server packets. Bunny-hop / strafe
+            speed exploits live here.</li>
+      </ul>
+
+      <h2>Workarounds for server-authoritative state</h2>
+      <p>Even for HP and similar 'untouchable' values, there are workarounds:</p>
+
+      <h3>1. Find and freeze the local cache of the server's state</h3>
+      <p>The server's value has to be stored locally somewhere — your client
+      reads it every frame to render the HP bar. If you can find that
+      cached cell (M18 territory) and freeze it, the cached value never
+      drops, the 'is_dead' check never trips. <em>This is what M18
+      simulates.</em> Real-world: works on poorly-coded games where the
+      server-state cache is read-write from gameplay code.</p>
+
+      <h3>2. Network-level packet filtering</h3>
+      <p>Drop or modify incoming server packets that contain HP updates.
+      Tools like Wireshark + a proxy can rewrite the bytes mid-flight.
+      Risk: server expects acks; if you drop too many, server might
+      kick you. Latency spikes give you away.</p>
+
+      <h3>3. Prediction exploitation</h3>
+      <p>Most modern engines do client-side prediction — your client
+      computes where you'll be / what HP you'll have, server reconciles.
+      Some engines never check certain fields server-side because
+      'the prediction is good enough.' Find one of those and you've
+      got a real exploit.</p>
+
+      <h3>4. Hit-reg manipulation</h3>
+      <p>Don't try to survive damage. Try to make damage <em>not happen</em>.
+      Move clientside out of the line of fire faster than the server
+      can validate, or register your shots with manipulated origin /
+      direction so server-side hit detection lands them where you want.</p>
+
+      <h3>5. Memory injection that fakes the server</h3>
+      <p>For peer-to-peer games (or self-hosted servers): inject code
+      that intercepts the server-state-apply function and skips the
+      writes you don't want. This is closer to internal cheats / DLL
+      injection territory.</p>
+
+      <h2>How to recognise server-side state</h2>
+      <ul>
+        <li><strong>HP freeze 'works' but you still die.</strong> Classic
+            sign — your local HP shows 100, but the death animation plays.
+            The check that triggered death used a different cell.</li>
+        <li><strong>Two HP values in memory.</strong> Browse the player
+            struct, see one HP-shaped value at +0x00 and another similar
+            value 200 bytes away. The far one might be the cached server
+            state.</li>
+        <li><strong>Cell updates on a slow tick (5-30Hz).</strong> If a
+            value updates exactly every ~33ms or ~16ms, it's likely
+            getting written by a network packet handler. Local cells
+            usually update every frame (60Hz+) or never.</li>
+        <li><strong>Cell value matches what the HUD shows but doesn't
+            respond to your local damage events.</strong> If you walked
+            into a hazard and your local HP dropped to 92 but cell X
+            still says 100 for half a second, X is the local cache and
+            something else is being read.</li>
+      </ul>
+
+      <h2>How M18 simulates this</h2>
+      <p>The simulator's <code>server.canonicalHp</code> cell is bound at
+      a random address (NOT inside the player struct — server state
+      conceptually lives 'over there'). Bleed and hazards push damage
+      events to <code>server.pendingDamage</code> regardless of your
+      <code>player.hp</code> freeze. Every 1.5s a server tick fires:</p>
+
+      <pre><code>server.canonicalHp -= server.pendingDamage
+server.pendingDamage = 0
+if server.canonicalHp &lt;= 0:
+  player.hp = 100      // forced respawn
+  deaths++
+  server.canonicalHp = 100</code></pre>
+
+      <p>Freezing <code>player.hp</code> doesn't touch this loop. Freezing
+      <code>server.canonicalHp</code> stops the math at the first line
+      (frozen value re-applies before the if-check). One freeze on the
+      <em>right</em> cell beats ten on the wrong one.</p>
+
+      <p>That's the entire shape of server-authoritative cheating. Find
+      the cell the server-side check actually reads, and you win.</p>
+    `,
+  },
+  {
     id: "multi-level-chains",
     title: "Multi-level Pointer Chains — Sub-structs and How To Walk Them",
     brief: "Real game stats live 2-4 pointers deep. Recoil, weapon stats, current target, animation state — they're all 'over there.'",

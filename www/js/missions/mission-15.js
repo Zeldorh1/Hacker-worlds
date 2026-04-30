@@ -60,6 +60,7 @@ export const mission15 = {
       "Final certification. Bleed's cooking, four contacts in the room. 100 HP, 60 rounds, default damage and fire rate.",
       "You can't fist-fight this. Stack your cheats: HP freeze (M2/M5), damage hike (M11), rapid fire (M14). Throw infinite ammo on top if you don't trust the count.",
       "Win condition: four kills, zero deaths during the run. If bleed kills you once, the contract burns.",
+      "Caveat: this is single-player. In a multiplayer game your local HP freeze would be cosmetic — the SERVER keeps its own copy and overrides you. M18 covers that fight. For now, enjoy the local truth.",
     ]);
 
     let done = false;

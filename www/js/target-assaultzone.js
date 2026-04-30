@@ -76,6 +76,20 @@ export class AssaultZone {
     this.bleedIntervalMs = 1500;
     this.lastBleedAt = 0;
 
+    // M18 SERVER AUTHORITY — when enabled, damage events post to a
+    // 'server' tracker that holds its own canonical HP. The server
+    // ticks every ~1.5s; when its HP hits 0, you respawn regardless
+    // of how the local player.hp cell is frozen. The lesson: in
+    // multiplayer you have to find and freeze the AUTHORITATIVE
+    // cell, not just the visible one.
+    this.server = {
+      enabled: false,
+      canonicalHp: 100,
+      pendingDamage: 0,
+      lastTickAt: 0,
+      tickIntervalMs: 1500,
+    };
+
     // Player stats live in a contiguous 'player struct' in fake memory.
     // Real games do this — a single allocation holds every per-player
     // value, and code accesses them via [base + offset]. M16 STRUCT
@@ -116,6 +130,15 @@ export class AssaultZone {
     this.addrEspVisible = memory.bindGameValue("render.espVisible",
       () => (this.espActive ? 1 : 0),
       v => { this.espActive = !!(v | 0); });
+
+    // M18 — server's authoritative HP. Bound at a random address so
+    // it doesn't sit next to the player struct (real game equivalent:
+    // the server's authoritative state is a separate process or
+    // remote machine). Default 100; mission turns it on via
+    // enableServerAuthority(...).
+    this.addrServerHp = memory.bindGameValue("server.canonicalHp",
+      () => this.server.canonicalHp,
+      v => { this.server.canonicalHp = v; });
 
     // Static pointer cell whose VALUE is always the current entity-array
     // base address. Survives rebases — the address itself never moves,
@@ -264,11 +287,16 @@ export class AssaultZone {
     this.lastBleedAt = 0;
     this.enemyManager.reset();
     this.enemiesCamouflaged = false;
+    this.server.enabled = false;
+    this.server.canonicalHp = 100;
+    this.server.pendingDamage = 0;
+    this.server.lastTickAt = 0;
+    document.getElementById("hud-server")?.setAttribute("hidden", "");
     // Unfreeze any cells from a previous run.
     for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo,
                      this.addrMoveCooldown, this.addrWeaponDamage,
                      this.addrWeaponCooldown, this.addrWeaponRecoil,
-                     this.addrEspVisible]) {
+                     this.addrEspVisible, this.addrServerHp]) {
       memory.setFrozen(a, false);
     }
     // Also clear freezes on the enemy struct array.
@@ -324,6 +352,20 @@ export class AssaultZone {
     this.weapon.recoilPerShot = 0;
     this.weapon.recoilCurrent = 0;
     document.getElementById("hud-recoil")?.setAttribute("hidden", "");
+  }
+
+  // M18 — turn on server-authoritative HP.
+  enableServerAuthority(initialHp = 100) {
+    this.server.enabled = true;
+    this.server.canonicalHp = initialHp;
+    this.server.pendingDamage = 0;
+    this.server.lastTickAt = performance.now();
+    document.getElementById("hud-server")?.removeAttribute("hidden");
+  }
+  disableServerAuthority() {
+    this.server.enabled = false;
+    this.server.pendingDamage = 0;
+    document.getElementById("hud-server")?.setAttribute("hidden", "");
   }
 
   enableWatchdog() {
@@ -485,6 +527,11 @@ export class AssaultZone {
       this.player.hp -= this.bleedRate;
       this.lastDamageAt = now;
       this.damageEvents++;
+      // M18 — damage events also queue against the server's canonical
+      // HP. A local HP freeze blocks the visible decrement but does
+      // NOT block this push to pendingDamage; the server still gets
+      // the damage event and ticks down server.canonicalHp.
+      if (this.server.enabled) this.server.pendingDamage += this.bleedRate;
       if (hpFrozen) {
         this._flashBlock();
       } else {
@@ -553,6 +600,9 @@ export class AssaultZone {
         this.player.hp -= HAZARD_DAMAGE;
         this.lastDamageAt = now;
         this.damageEvents++;
+        // M18 — also push to server.pendingDamage so the canonical
+        // server HP ticks down regardless of the local freeze.
+        if (this.server.enabled) this.server.pendingDamage += HAZARD_DAMAGE;
         // Memory.tick() below will overwrite player.hp with the frozen value,
         // but we still count the event because the hazard fired.
         if (hpFrozen) {
@@ -571,6 +621,33 @@ export class AssaultZone {
       }
     }
 
+    // M18 SERVER TICK — periodically reconciles the server's HP with
+    // accumulated damage. If server.canonicalHp hits 0 the server
+    // 'kills' you (respawn + deaths++), regardless of how the local
+    // player.hp is frozen. To survive, freeze server.canonicalHp.
+    if (this.server.enabled && now - this.server.lastTickAt > this.server.tickIntervalMs) {
+      this.server.lastTickAt = now;
+      if (this.server.pendingDamage > 0) {
+        const serverHpFrozen = memory.isFrozen(this.addrServerHp);
+        if (!serverHpFrozen) {
+          this.server.canonicalHp = Math.max(0, this.server.canonicalHp - this.server.pendingDamage);
+        }
+        // Always drain the queue — the damage event was 'sent.'
+        this.server.pendingDamage = 0;
+      }
+      if (this.server.canonicalHp <= 0) {
+        // Server says you're dead. Respawn happens client-side; you
+        // can't refuse the order even with player.hp frozen at 100.
+        this.deaths++;
+        this.player.hp = 100;
+        this.player.x = SPAWN.x;
+        this.player.y = SPAWN.y;
+        this.server.canonicalHp = 100;
+        this._flashHit();
+        if (this.audio) this.audio.fail && this.audio.fail();
+      }
+    }
+
     // Sync game <-> memory (also applies any frozen writes).
     memory.tick();
 
@@ -585,6 +662,13 @@ export class AssaultZone {
     const lockedNow = memory.isFrozen(this.addrHP);
     const $lock = document.getElementById("hud-lock");
     if ($lock) $lock.hidden = !lockedNow;
+    if (this.server.enabled) {
+      const $srv = document.getElementById("hud-server-val");
+      if ($srv) {
+        const srvLock = memory.isFrozen(this.addrServerHp) ? " ⛒" : "";
+        $srv.textContent = `${this.server.canonicalHp}${srvLock}`;
+      }
+    }
     if (this.weapon.enabled) {
       const $tgt = document.getElementById("hud-target");
       if ($tgt) {
