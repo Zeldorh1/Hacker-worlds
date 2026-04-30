@@ -32,6 +32,11 @@ export class DllRuntime {
     this._injectedAt = 0;
     this.console = [];
     this._listeners = new Set();
+    /** Registered cheats — populated by register_cheat() calls in the
+     *  player's DLL. Each: { label, tickFn, enabled }. The cheat menu
+     *  reads this and renders a checkbox per entry; checked entries
+     *  have their tickFn invoked every frame. */
+    this.cheats = [];
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -64,8 +69,31 @@ export class DllRuntime {
       freeze_label:  (label) => memory.setFrozen(memory.addressOfLabel(label), true),
       find_pointers_to: (addr) => memory.findPointersTo(addr, 0x80, 4),
       log:           (msg) => this.log(String(msg)),
+      // M23 — register a cheat in the in-game menu. The menu pops up
+      // on DELETE key (or the menu button). Checked cheats invoke
+      // their tickFn each frame after the user's onTick.
+      register_cheat: (label, tickFn) => {
+        if (typeof tickFn !== "function") {
+          this.log("[register_cheat] tickFn must be a function for '" + label + "'");
+          return;
+        }
+        // Replace if a cheat with the same label is already registered
+        // (so re-injects don't pile up duplicates).
+        const idx = this.cheats.findIndex(c => c.label === label);
+        if (idx >= 0) this.cheats[idx] = { label, tickFn, enabled: this.cheats[idx].enabled };
+        else this.cheats.push({ label, tickFn, enabled: false });
+        this._emit();
+      },
     };
   }
+
+  /** Toggle a registered cheat. Called by the menu UI. */
+  setCheatEnabled(label, enabled) {
+    const c = this.cheats.find(x => x.label === label);
+    if (c) { c.enabled = !!enabled; this._emit(); }
+  }
+
+  clearCheats() { this.cheats = []; this._emit(); }
 
   /**
    * Compile the source. Stops any current injection first.
@@ -95,7 +123,7 @@ return {
       factory = new Function(
         "read", "write", "freeze", "unfreeze", "is_frozen",
         "addr_of", "read_label", "write_label", "freeze_label",
-        "find_pointers_to", "log",
+        "find_pointers_to", "log", "register_cheat",
         wrapped
       );
     } catch (e) {
@@ -107,7 +135,7 @@ return {
       result = factory(
         a.read, a.write, a.freeze, a.unfreeze, a.is_frozen,
         a.addr_of, a.read_label, a.write_label, a.freeze_label,
-        a.find_pointers_to, a.log
+        a.find_pointers_to, a.log, a.register_cheat
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
@@ -139,6 +167,16 @@ return {
           return;
         }
       }
+      // Run every enabled menu-registered cheat after the user's tick.
+      for (const c of this.cheats) {
+        if (!c.enabled) continue;
+        try { c.tickFn(); }
+        catch (e) {
+          this.log("[cheat '" + c.label + "' error] " + e.message);
+          c.enabled = false;   // disable broken cheats so they don't spam
+          this._emit();
+        }
+      }
       this._rafId = requestAnimationFrame(loop);
     };
     this._rafId = requestAnimationFrame(loop);
@@ -151,6 +189,7 @@ return {
     this.running = false;
     if (this._rafId) cancelAnimationFrame(this._rafId);
     this._rafId = 0;
+    this.cheats = [];   // clear registered cheats — re-inject re-registers
     this.log("DLL ejected");
     this._emit();
   }

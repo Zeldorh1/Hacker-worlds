@@ -86,6 +86,44 @@ function setupHintsButton() {
   });
 }
 
+function setupCheatMenu() {
+  const $btn  = document.getElementById("btn-cheat-menu");
+  const $menu = document.getElementById("cheat-menu");
+  const $list = document.getElementById("cheat-menu-list");
+  if (!$btn || !$menu) return;
+
+  function render() {
+    if (dllRuntime.cheats.length === 0) {
+      $list.innerHTML = '<li class="empty">No cheats registered. Inject a DLL that calls register_cheat().</li>';
+      return;
+    }
+    $list.innerHTML = dllRuntime.cheats.map((c, i) => `
+      <li>
+        <input type="checkbox" id="cheat-cb-${i}" data-label="${c.label.replace(/"/g, "&quot;")}" ${c.enabled ? "checked" : ""}/>
+        <label for="cheat-cb-${i}">${c.label}</label>
+      </li>
+    `).join("");
+    $list.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener("change", () => {
+        dllRuntime.setCheatEnabled(cb.dataset.label, cb.checked);
+        if (audio && cb.checked) audio.lock();
+      });
+    });
+  }
+  function toggle() {
+    $menu.hidden = !$menu.hidden;
+    if (!$menu.hidden) render();
+    if (audio) audio.tap();
+  }
+  $btn.addEventListener("click", toggle);
+  // DELETE key — desktop hotkey. Common cheat-menu binding.
+  window.addEventListener("keydown", e => {
+    if (e.key === "Delete" || e.key === "Insert") { e.preventDefault(); toggle(); }
+  });
+  // Live-refresh menu when cheats register/unregister.
+  dllRuntime.on(() => { if (!$menu.hidden) render(); });
+}
+
 function setupDllEditor() {
   const $code    = document.getElementById("dll-code");
   const $compile = document.getElementById("btn-dll-compile");
@@ -218,6 +256,7 @@ async function boot() {
   setupMuteButton();
   setupHintsButton();
   setupDllEditor();
+  setupCheatMenu();
   await runBoot({ audio });
 
   // Show the orientation slides on first launch.
@@ -309,6 +348,10 @@ async function boot() {
     if ($restart) $restart.hidden = true;
     const $tabDll = document.getElementById("tab-dll");
     if ($tabDll) $tabDll.hidden = true;
+    const $cheatBtn  = document.getElementById("btn-cheat-menu");
+    const $cheatMenu = document.getElementById("cheat-menu");
+    if ($cheatBtn)  $cheatBtn.hidden = true;
+    if ($cheatMenu) $cheatMenu.hidden = true;
   }
 
   function endMission() {
@@ -397,6 +440,10 @@ async function boot() {
       if ($status) { $status.textContent = "not compiled"; $status.className = "dll-status"; }
       dllRuntime.clearConsole();
     }
+
+    // Cheat menu button — only visible for missions that opt in.
+    const $cheatBtn = document.getElementById("btn-cheat-menu");
+    if ($cheatBtn) $cheatBtn.hidden = !m.cheatMenu;
 
     if (m.watchdog) {
       showViolationBar();

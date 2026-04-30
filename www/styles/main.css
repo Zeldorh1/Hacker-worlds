@@ -816,6 +816,56 @@ body[data-mode="hub"] .violation-bar { display: none; }
 .fww-results .nopped { background: rgba(248, 113, 113, 0.08); border-left: 2px solid var(--danger); }
 .fww-results .nopped .val { color: var(--danger); }
 
+/* M23 Cheat menu */
+.cheat-menu-btn {
+  position: absolute; top: 8px; left: 8px;
+  z-index: 5;
+  background: rgba(6, 8, 10, 0.85);
+  color: var(--accent-2);
+  border: 1px solid var(--accent-2);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.cheat-menu-btn:active { background: rgba(34, 211, 238, 0.15); }
+.cheat-menu {
+  position: absolute; top: 44px; left: 8px;
+  z-index: 6;
+  background: rgba(6, 8, 10, 0.94);
+  border: 1px solid var(--accent-2);
+  border-radius: 4px;
+  padding: 8px 10px;
+  min-width: 200px;
+  max-width: 80%;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.cheat-menu-header {
+  color: var(--accent-2);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+.cheat-menu-list { list-style: none; margin: 0; padding: 0; }
+.cheat-menu-list li {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0;
+  color: var(--fg);
+  font-size: 0.85rem;
+}
+.cheat-menu-list li input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); }
+.cheat-menu-list li.empty { color: var(--fg-dim); font-style: italic; padding: 4px 0; }
+.cheat-menu-hint {
+  color: var(--fg-dim);
+  font-size: 0.7rem;
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+
 /* DLL editor */
 .dll-editor { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; height: 100%; box-sizing: border-box; }
 .dll-toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
