@@ -6,6 +6,166 @@
 
 const ARTICLES = [
   {
+    id: "custom-menus-canvas-to-imgui",
+    title: "Custom Menus — From Canvas to ImGui",
+    brief: "What every menu actually is: state + drawing + hit-testing + toggle. Plus how the simulator's raw-canvas approach maps to real ImGui in C++.",
+    body: `
+      <h2>What a menu actually IS</h2>
+      <p>Strip away the framework, every cheat menu does five things:</p>
+
+      <ol>
+        <li><strong>State</strong> — bool variables for each cheat
+            ("is Infinite HP on?").</li>
+        <li><strong>Drawing</strong> — colored rectangles + text
+            positioned on screen. Every UI is just pixels.</li>
+        <li><strong>Hit-testing</strong> — when the player taps,
+            check if the tap point is inside any drawn rectangle.</li>
+        <li><strong>Toggle</strong> — if the tap landed on a checkbox
+            rect, flip the bool.</li>
+        <li><strong>Apply</strong> — somewhere else (your tick loop),
+            read each bool and run the cheat code if it's true.</li>
+      </ol>
+
+      <p>That's it. ImGui automates this; the underlying mechanics
+      are unchanged.</p>
+
+      <h2>The five sections in M36's template</h2>
+      <p>The simulator template literally has five labeled sections:</p>
+      <pre><code>// 1. STATE — bools
+// 2. STYLE — colors / positions you can edit
+// 3. LAYOUT — compute checkbox rects
+// 4. DRAW — render every frame
+// 5. INPUT — hit-test taps + flip bools
+// 6. APPLY — onTick reads bools</code></pre>
+
+      <p>Edit STYLE.bgColor, STYLE.borderColor, STYLE.font, STYLE.x/y
+      to make it yours. The structure is what matters.</p>
+
+      <h2>Drawing — the canvas API</h2>
+      <p>The simulator gives you a Canvas 2D context. Real DirectX 9
+      games give you an <code>IDirect3DDevice9*</code>. The primitives
+      map almost one-to-one:</p>
+
+      <table style="width:100%; border-collapse:collapse; margin:0.5rem 0;">
+        <tr><th style="text-align:left;">Sim (Canvas 2D)</th><th style="text-align:left;">Real D3D9 / ImGui</th></tr>
+        <tr><td><code>ctx.fillRect(x,y,w,h)</code></td><td>D3D vertex buffer with two triangles, or <code>ImGui::GetWindowDrawList()->AddRectFilled()</code></td></tr>
+        <tr><td><code>ctx.strokeRect(...)</code></td><td>4 line segments, or <code>AddRect()</code></td></tr>
+        <tr><td><code>ctx.fillText(s,x,y)</code></td><td><code>D3DXFont->DrawTextA(s, &rect, ...)</code> or <code>ImGui::Text()</code></td></tr>
+        <tr><td><code>ctx.fillStyle</code></td><td><code>D3DCOLOR_ARGB(a,r,g,b)</code> or ImGui style colors</td></tr>
+        <tr><td><code>ctx.font</code></td><td><code>D3DXCreateFontA(...)</code></td></tr>
+      </table>
+
+      <h2>Hit-testing — point-in-rect</h2>
+      <p>When the player taps, you get a coord pair. Check if it's
+      inside each clickable rect:</p>
+
+      <pre><code>function pointInRect(px, py, rx, ry, rw, rh) {
+    return px >= rx && px <= rx + rw &&
+           py >= ry && py <= ry + rh;
+}</code></pre>
+
+      <p>Real ImGui does this internally — every <code>ImGui::Button</code>
+      stores its rect, ImGui's input system checks the cursor against
+      every rect each frame. You can write <code>ImGui::IsMouseHoveringRect</code>
+      manually to see the same logic exposed.</p>
+
+      <h2>Toggle — flip the bool</h2>
+      <pre><code>if (pointInRect(ev.x, ev.y, r.x, r.y, r.w, r.h)) {
+    state[r.key] = !state[r.key];
+    return true;   // event handled
+}</code></pre>
+
+      <p>ImGui's <code>ImGui::Checkbox("label", &state)</code> is a
+      one-liner because it bundles drawing + hit-testing + toggle. The
+      <code>&state</code> is how it knows where to write the toggle —
+      you pass a pointer to your bool, ImGui flips it on click.</p>
+
+      <h2>The same menu in real C++ (ImGui)</h2>
+      <p>Once you understand the simulator's raw approach, the real
+      thing collapses:</p>
+
+      <pre><code>// State — same bools as the sim's 'state' object
+static bool g_inf_hp = false;
+static bool g_inf_ammo = false;
+static bool g_super_dmg = false;
+
+// Inside your D3D9 EndScene hook:
+ImGui_ImplDX9_NewFrame();
+ImGui_ImplWin32_NewFrame();
+ImGui::NewFrame();
+
+ImGui::Begin("Custom Menu",
+             nullptr,
+             ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Checkbox("Infinite HP",    &g_inf_hp);
+    ImGui::Checkbox("Infinite Ammo",  &g_inf_ammo);
+    ImGui::Checkbox("Super Damage",   &g_super_dmg);
+ImGui::End();
+
+ImGui::Render();
+ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+// Apply elsewhere:
+if (g_inf_hp)    *(int*)(player_base + 0xEC) = 100;
+if (g_inf_ammo)  *(int*)(player_base + 0x140) = 99;</code></pre>
+
+      <p>Every one of those lines maps to a section in M36's template.
+      <code>ImGui::Checkbox</code> is the simulator's draw + hit-test +
+      toggle compressed into one call. <code>ImGui::Begin/End</code> is
+      the simulator's background-rect + title-bar.</p>
+
+      <h2>Customisation — how to actually change things</h2>
+
+      <h3>Colors</h3>
+      <p>Sim: edit STYLE.bgColor, STYLE.borderColor, etc. Hex /
+      rgba(...) accepted.</p>
+      <p>ImGui: <code>ImGui::PushStyleColor(ImGuiCol_WindowBg,
+      ImVec4(0.0f, 0.0f, 0.0f, 0.9f));</code> before
+      <code>ImGui::Begin</code>. Pop after End.</p>
+
+      <h3>Position / size</h3>
+      <p>Sim: STYLE.x, STYLE.y, STYLE.w. Just numbers.</p>
+      <p>ImGui:
+      <code>ImGui::SetNextWindowPos(ImVec2(12, 60));</code>
+      <code>ImGui::SetNextWindowSize(ImVec2(220, 200));</code>
+      before Begin.</p>
+
+      <h3>Backgrounds / images</h3>
+      <p>Sim: <code>ctx.drawImage(img, x, y)</code> would work if you
+      preloaded an image. <code>ctx.fillStyle = pattern</code> for
+      tiled backgrounds.</p>
+      <p>ImGui: <code>ImGui::Image(textureID, size)</code> draws a
+      D3D9 texture inside the menu. You'd use
+      <code>D3DXCreateTextureFromFileInMemory</code> to load PNGs into
+      D3D9 textures (CombatArms.dll's import for that purpose was
+      visible in its PE).</p>
+
+      <h3>Custom widgets</h3>
+      <p>Sim: any widget you can DRAW you can BUILD. A slider is just
+      a bg-rect + a fg-rect that gets repositioned on drag.</p>
+      <p>ImGui: most widgets exist (<code>ImGui::SliderInt</code>,
+      <code>ImGui::ColorEdit3</code>, <code>ImGui::TreeNode</code>).
+      For exotic stuff, drop down to <code>ImGui::GetWindowDrawList()</code>
+      and AddRectFilled / AddText directly — same primitive level
+      as the simulator.</p>
+
+      <h2>Why building from raw primitives matters</h2>
+      <p>If you only ever write <code>ImGui::Checkbox</code> you don't
+      know:</p>
+      <ul>
+        <li>How to add a custom widget ImGui doesn't have</li>
+        <li>How to make a non-rectangular hit zone</li>
+        <li>How to render a totally custom menu (e.g., a circular
+            radial menu)</li>
+        <li>How to debug when a click misses</li>
+      </ul>
+
+      <p>M36 forces you through the underlying mechanics so the
+      ImGui shortcuts are <em>shortcuts you understand</em>, not
+      magic.</p>
+    `,
+  },
+  {
     id: "behavioral-evasion",
     title: "Behavioral Evasion — Making the Cheat Look Human",
     brief: "Why pro cheats add jitter, reaction delay, miss-on-purpose. The statistical layer of the arms race.",

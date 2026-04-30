@@ -335,8 +335,37 @@ export class AssaultZone {
     this._pausedAt = 0;
 
     this._wireInput();
+    this._wireCanvasClicks();
     this._fitCanvas();
     window.addEventListener("resize", () => this._fitCanvas());
+  }
+
+  /** Route canvas taps to DLL input hooks (M36). Coordinates are
+   *  converted to canvas pixel-space so they line up with what the
+   *  render hook drew. If any hook returns true, the event is
+   *  considered handled and not forwarded to default game logic. */
+  _wireCanvasClicks() {
+    const dispatch = (e, x, y) => {
+      const dll = (typeof window !== "undefined" && window.__hw)
+        ? window.__hw.dll : null;
+      if (!dll || !dll.inputHooks || dll.inputHooks.length === 0) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const px = (x - rect.left) * (this.canvas.width / rect.width);
+      const py = (y - rect.top) * (this.canvas.height / rect.height);
+      for (const hook of dll.inputHooks) {
+        try {
+          const handled = hook({ type: "click", x: px, y: py });
+          if (handled) { e.preventDefault(); return; }
+        } catch (err) {
+          if (dll.log) dll.log("[input_hook error] " + err.message);
+        }
+      }
+    };
+    this.canvas.addEventListener("click", (e) => dispatch(e, e.clientX, e.clientY));
+    this.canvas.addEventListener("touchstart", (e) => {
+      const t = e.touches[0];
+      if (t) dispatch(e, t.clientX, t.clientY);
+    }, { passive: false });
   }
 
   pause()  { if (!this.paused) { this.paused = true;  this._pausedAt = performance.now(); } }

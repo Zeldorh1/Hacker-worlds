@@ -62,6 +62,12 @@ export class DllRuntime {
      *  (null drops the packet). Real-world equivalent: a detour on
      *  ws2_32!send / ws2_32!recv. */
     this.packetHooks = [];
+    /** Input hooks — fn({type, x, y}) → boolean. Fired when the
+     *  player taps the game canvas. M36 uses these to build a
+     *  custom in-game menu without the simulator's built-in
+     *  cheat-menu UI. Real-world equivalent: an ImGui WndProc
+     *  detour or a custom Win32 input handler. */
+    this.inputHooks = [];
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -105,6 +111,18 @@ export class DllRuntime {
           return;
         }
         this.renderHooks.push(fn);
+        this._emit();
+      },
+      // M36 — install an input hook. fn({type, x, y}) is called for
+      // every canvas tap. Coordinates are in canvas pixel space (the
+      // same space your render hook draws in). Return true to mark
+      // the event 'handled' so the game doesn't react to the click.
+      register_input_hook: (fn) => {
+        if (typeof fn !== "function") {
+          this.log("[register_input_hook] fn must be a function");
+          return;
+        }
+        this.inputHooks.push(fn);
         this._emit();
       },
       // M30+ — install a packet hook. direction is "send" or "recv".
@@ -165,7 +183,7 @@ export class DllRuntime {
             "addr_of", "read_label", "write_label", "freeze_label",
             "find_pointers_to", "log", "register_cheat",
             "register_render_hook", "register_packet_hook", "load_payload",
-            "inject_packet",
+            "inject_packet", "register_input_hook",
             wrapped
           );
           const a = this._makeApi();
@@ -174,7 +192,7 @@ export class DllRuntime {
             a.addr_of, a.read_label, a.write_label, a.freeze_label,
             a.find_pointers_to, a.log, a.register_cheat,
             a.register_render_hook, a.register_packet_hook, a.load_payload,
-            a.inject_packet
+            a.inject_packet, a.register_input_hook
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -243,7 +261,7 @@ return {
         "addr_of", "read_label", "write_label", "freeze_label",
         "find_pointers_to", "log", "register_cheat",
         "register_render_hook", "register_packet_hook", "load_payload",
-        "inject_packet",
+        "inject_packet", "register_input_hook",
         wrapped
       );
     } catch (e) {
@@ -257,7 +275,7 @@ return {
         a.addr_of, a.read_label, a.write_label, a.freeze_label,
         a.find_pointers_to, a.log, a.register_cheat,
         a.register_render_hook, a.register_packet_hook, a.load_payload,
-        a.inject_packet
+        a.inject_packet, a.register_input_hook
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
@@ -339,6 +357,7 @@ return {
     this.renderHooks = [];      // clear render hooks
     this._payloadTicks = [];    // clear payload tick functions
     this.packetHooks = [];      // clear packet hooks
+    this.inputHooks = [];       // clear input hooks
     this.log("DLL ejected");
     this._emit();
   }
