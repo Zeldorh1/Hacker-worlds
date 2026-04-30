@@ -6,6 +6,153 @@
 
 const ARTICLES = [
   {
+    id: "code-patching",
+    title: "Code Patching — When Freezing the Cell Isn't Enough",
+    brief: "Right-click → Find what writes → Replace with code that does nothing. The big leap from data hacks to code hacks.",
+    body: `
+      <h2>Two completely different things to hack</h2>
+      <p>Every cheat you've shipped through M21 has been a <strong>data
+      hack</strong>: find a memory cell, write a different value to it,
+      maybe freeze it. The cell gets re-written each frame by your code
+      and by the game's code in a tug-of-war, and your faster writes win.</p>
+
+      <p>M22 introduces <strong>code patching</strong>: instead of fighting
+      the game over a value, you reach into the game's <em>instructions</em>
+      and edit them directly. Replace the <code>sub eax, 5</code>
+      (subtract 5 from HP) with three NOP bytes (<code>0x90 0x90 0x90</code>),
+      and the CPU literally executes nothing where the damage used to be.
+      The game's source code says it should subtract HP. The compiled
+      machine code says it should do nothing. The CPU obeys the bytes.</p>
+
+      <h2>Why this is qualitatively stronger</h2>
+      <table style="width:100%; border-collapse:collapse; margin: 0.5rem 0;">
+        <tr><th style="text-align:left; padding:0.3em 0;">Freeze</th><th style="text-align:left; padding:0.3em 0;">NOP</th></tr>
+        <tr>
+          <td style="padding:0.3em 0; vertical-align:top;">Game writes 95, you write 100. Repeat 60 times/sec.</td>
+          <td style="padding:0.3em 0; vertical-align:top;">Game's write instruction is gone. Nothing to overwrite.</td>
+        </tr>
+        <tr>
+          <td style="padding:0.3em 0; vertical-align:top;">CRC watchdog (M6) sees the cell is frozen → trips.</td>
+          <td style="padding:0.3em 0; vertical-align:top;">Cell isn't frozen. Watchdog has nothing to detect.</td>
+        </tr>
+        <tr>
+          <td style="padding:0.3em 0; vertical-align:top;">If the game stops reading the cell, your freeze stops mattering.</td>
+          <td style="padding:0.3em 0; vertical-align:top;">If the game stops reading the cell, the NOP'd write also stops mattering — both go dormant.</td>
+        </tr>
+        <tr>
+          <td style="padding:0.3em 0; vertical-align:top;">Lives in your trainer process or DLL.</td>
+          <td style="padding:0.3em 0; vertical-align:top;">Lives in the GAME process — applied directly to the loaded module's bytes.</td>
+        </tr>
+      </table>
+
+      <p>The watchdog point is the M22 lesson. Anti-cheat systems can
+      easily detect 'this cell value never changes when it should' (cell
+      freeze). They have a much harder time detecting 'this code path
+      doesn't fire as often as expected' — that's a behavioral signal,
+      not a memory signal.</p>
+
+      <h2>How Cheat Engine does it</h2>
+      <ol>
+        <li><strong>Find the cell</strong> the normal way (scan, narrow,
+            watch).</li>
+        <li><strong>Right-click → "Find what writes to this address."</strong>
+            CE attaches a debugger and sets a hardware breakpoint on
+            the cell. Trigger the write (take damage, fire the gun,
+            whatever).</li>
+        <li>The debugger breaks. CE shows the instruction that
+            performed the write, like:
+            <pre><code>game.exe + 0x14B232:  29 50 00       sub [eax+0x00], edx</code></pre>
+            That's the bleed-tick / damage-apply / whatever code, in
+            assembly.</li>
+        <li><strong>Right-click the instruction → "Replace with code that
+            does nothing."</strong> CE writes <code>0x90 0x90 0x90</code> to
+            those bytes. The instruction is now <code>nop nop nop</code>.
+            Damage doesn't happen anymore.</li>
+        <li>CE saves the patch as an AOB (array-of-bytes) script in the
+            CT file so it auto-applies on game restart.</li>
+      </ol>
+
+      <h2>Where you'll use this in real games</h2>
+      <ul>
+        <li><strong>Damage skips</strong> — NOP the <code>sub hp, dmg</code>
+            instruction. Most common use.</li>
+        <li><strong>Ammo decrements</strong> — NOP the
+            <code>dec [rcx+0x08]</code>. Infinite ammo without a freeze
+            (which some games detect).</li>
+        <li><strong>Cooldown timers</strong> — NOP the
+            <code>add cooldown, frame_time</code>. Abilities never go
+            on cooldown.</li>
+        <li><strong>Server packet apply</strong> — NOP the call to
+            <code>apply_server_state(packet)</code>. Local cells never
+            get overwritten by server reconciliation. Combined with M18
+            cell freezes, this is how some multiplayer godmodes survive.</li>
+        <li><strong>Anti-cheat checks</strong> — find the
+            <code>cmp eax, expected_crc / je good</code>, replace
+            <code>je</code> with <code>jmp</code> so the check always
+            passes regardless of whether bytes were tampered with.</li>
+      </ul>
+
+      <h2>Other "code patching" verbs</h2>
+      <ul>
+        <li><strong>NOP</strong> (today's lesson) — replace with do-nothing
+            bytes. Skips a single instruction or a few.</li>
+        <li><strong>JMP patch</strong> — replace a conditional jump with an
+            unconditional one. Forces a branch that wasn't supposed to
+            be taken.</li>
+        <li><strong>RET patch</strong> — replace the first byte of a
+            function with <code>0xC3</code> (ret). Function exits
+            immediately, doing nothing. Useful for skipping entire
+            handlers.</li>
+        <li><strong>Code cave</strong> — find unused space in the binary,
+            write your own assembly there, JMP from the original
+            location into your code, JMP back when done. Lets you
+            ADD logic, not just remove it.</li>
+        <li><strong>Detour / hook</strong> — overwrite the function's
+            prologue with a JMP into your DLL, where you do whatever
+            you want before (optionally) jumping back to the original
+            code. The Cheat Engine "Auto Assemble" tab generates these.</li>
+      </ul>
+
+      <h2>How the simulator models this</h2>
+      <p>The game's "code" lives in <code>code-segment.js</code> as a
+      registry of named instructions. Each one has a fake code address
+      (<code>0x12AB34CD_C</code>), a list of memory addresses it writes
+      to, and an <code>exec()</code> function. The bleed handler, hazard
+      apply, and server reconciliation tick are all registered there.</p>
+
+      <p>FIND WHAT WRITES queries the registry and returns instructions
+      that have FIRED in the last 8 seconds and target the queried
+      address. (Mirrors CE's behavior — if the write hasn't actually
+      happened recently, the breakpoint never fires, you see nothing.)</p>
+
+      <p>NOP flips a flag on the instruction. The instruction stays
+      registered, still gets called every tick, still increments its
+      'attempted' counter — but its <code>exec()</code> body doesn't
+      run. From the game's perspective, the code is still there. From
+      the player's perspective, it does nothing. From an anti-cheat
+      watchdog's perspective: no frozen cell, no detection.</p>
+
+      <h2>Defenses you'll see</h2>
+      <ul>
+        <li><strong>Code segment integrity check</strong> — anti-cheat
+            CRC-checks the .text section. NOPs change the CRC. Defeated
+            by ALSO NOPing or hooking the integrity check itself.</li>
+        <li><strong>Self-modifying code</strong> — the game restores its
+            own .text section every few seconds. Your NOP gets undone.
+            Defeated by hooking the restore function or NOPing it.</li>
+        <li><strong>Code obfuscation / virtualization</strong> (VMProtect,
+            Themida) — the relevant code path is hidden inside an
+            interpreter that's hard to read. Pure code patching
+            stops being feasible; you fall back to data hacks or
+            external tools.</li>
+      </ul>
+
+      <p>Code patching is the next step beyond data hacking. Once you
+      can NOP arbitrary instructions, you stop fighting the game and
+      start editing it.</p>
+    `,
+  },
+  {
     id: "internal-vs-external",
     title: "Internal Cheats vs External — What a DLL Actually Does",
     brief: "Where DLL injection sits, why it's stronger than a scanner, and what it CAN'T do.",

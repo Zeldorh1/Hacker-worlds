@@ -812,6 +812,9 @@ body[data-mode="hub"] .violation-bar { display: none; }
 .ptr-results { max-height: 180px; }
 .browse-results { max-height: 280px; }
 .browse-results .browse-base { background: rgba(34, 211, 238, 0.08); border-left: 2px solid var(--accent-2); }
+.fww-results { max-height: 220px; }
+.fww-results .nopped { background: rgba(248, 113, 113, 0.08); border-left: 2px solid var(--danger); }
+.fww-results .nopped .val { color: var(--danger); }
 
 /* DLL editor */
 .dll-editor { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; height: 100%; box-sizing: border-box; }

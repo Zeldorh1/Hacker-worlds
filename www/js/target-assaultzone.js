@@ -3,6 +3,7 @@
 
 import { memory, SimMemory } from "./sim-memory.js";
 import { EnemyManager } from "./enemies.js";
+import { codeSegment } from "./code-segment.js";
 
 const TILE = 16;
 const MAP_W = 22;
@@ -259,6 +260,37 @@ export class AssaultZone {
       () => this.respawnPoint.y,
       v => { this.respawnPoint.y = v | 0; });
 
+    // Code instructions — registered with the CodeSegment so the
+    // player can use Find What Writes to discover and NOP them out.
+    // Each instruction's exec body matches what used to be inline
+    // in update(); the inline code now calls codeSegment.run(id).
+    codeSegment.define("bleed_tick", {
+      name: "BLEED_TICK_HANDLER",
+      writesTo: [this.addrHP, this.addrServerHp],
+      exec: () => {
+        this.player.hp -= this.bleedRate;
+        if (this.server.enabled) this.server.pendingDamage += this.bleedRate;
+      },
+    });
+    codeSegment.define("hazard_apply", {
+      name: "HAZARD_DAMAGE_APPLY",
+      writesTo: [this.addrHP, this.addrServerHp],
+      exec: () => {
+        this.player.hp -= HAZARD_DAMAGE;
+        if (this.server.enabled) this.server.pendingDamage += HAZARD_DAMAGE;
+      },
+    });
+    codeSegment.define("server_drain", {
+      name: "SERVER_HP_RECONCILE",
+      writesTo: [this.addrServerHp],
+      exec: () => {
+        if (!memory.isFrozen(this.addrServerHp)) {
+          this.server.canonicalHp = Math.max(0, this.server.canonicalHp - this.server.pendingDamage);
+        }
+        this.server.pendingDamage = 0;
+      },
+    });
+
     this.paused = false;
     this._pausedAt = 0;
 
@@ -333,6 +365,7 @@ export class AssaultZone {
     this.server.lastTickAt = 0;
     this.respawnPoint.x = SPAWN.x;
     this.respawnPoint.y = SPAWN.y;
+    codeSegment.reset();
     document.getElementById("hud-server")?.setAttribute("hidden", "");
     // Unfreeze any cells from a previous run.
     for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo,
@@ -569,25 +602,23 @@ export class AssaultZone {
 
     // Bleed: a wound that ticks down HP regardless of position. Frozen HP
     // lets the player survive it indefinitely — exactly the lesson.
+    // Routed through codeSegment so the player can NOP it (M22).
     if (this.bleedActive && now - this.lastBleedAt > this.bleedIntervalMs) {
       this.lastBleedAt = now;
       const hpFrozen = memory.isFrozen(this.addrHP);
-      this.player.hp -= this.bleedRate;
-      this.lastDamageAt = now;
-      this.damageEvents++;
-      // M18 — damage events also queue against the server's canonical
-      // HP. A local HP freeze blocks the visible decrement but does
-      // NOT block this push to pendingDamage; the server still gets
-      // the damage event and ticks down server.canonicalHp.
-      if (this.server.enabled) this.server.pendingDamage += this.bleedRate;
-      if (hpFrozen) {
-        this._flashBlock();
-      } else {
-        this._flashHit();
-        if (this.audio) this.audio.damage();
-        if (this.player.hp <= 0) {
-          this.deaths++;
-          this.player.hp = 100;
+      const ran = codeSegment.run("bleed_tick");
+      if (ran) {
+        this.lastDamageAt = now;
+        this.damageEvents++;
+        if (hpFrozen) {
+          this._flashBlock();
+        } else {
+          this._flashHit();
+          if (this.audio) this.audio.damage();
+          if (this.player.hp <= 0) {
+            this.deaths++;
+            this.player.hp = 100;
+          }
         }
       }
     }
@@ -640,31 +671,29 @@ export class AssaultZone {
     }
 
     // Hazards apply damage on a slow tick if the player is standing on one.
+    // Routed through codeSegment so the hazard apply instruction can be
+    // NOPed via the M22 Find What Writes workflow.
     if (this.hazardsActive && now - this.lastHazardTickAt > HAZARD_TICK_MS) {
       this.lastHazardTickAt = now;
       if (this._onHazardTile()) {
         const hpFrozen = memory.isFrozen(this.addrHP);
-        const before = this.player.hp;
-        this.player.hp -= HAZARD_DAMAGE;
-        this.lastDamageAt = now;
-        this.damageEvents++;
-        // M18 — also push to server.pendingDamage so the canonical
-        // server HP ticks down regardless of the local freeze.
-        if (this.server.enabled) this.server.pendingDamage += HAZARD_DAMAGE;
-        // Memory.tick() below will overwrite player.hp with the frozen value,
-        // but we still count the event because the hazard fired.
-        if (hpFrozen) {
-          this._flashBlock();
-          if (this.audio) this.audio.lock();
-        } else {
-          this._flashHit();
-          if (this.audio) this.audio.damage();
-        }
-        if (!hpFrozen && this.player.hp <= 0) {
-          this.deaths++;
-          this.player.hp = 100;
-          this.player.x = SPAWN.x;
-          this.player.y = SPAWN.y;
+        const ran = codeSegment.run("hazard_apply");
+        if (ran) {
+          this.lastDamageAt = now;
+          this.damageEvents++;
+          if (hpFrozen) {
+            this._flashBlock();
+            if (this.audio) this.audio.lock();
+          } else {
+            this._flashHit();
+            if (this.audio) this.audio.damage();
+          }
+          if (!hpFrozen && this.player.hp <= 0) {
+            this.deaths++;
+            this.player.hp = 100;
+            this.player.x = SPAWN.x;
+            this.player.y = SPAWN.y;
+          }
         }
       }
     }
@@ -677,12 +706,10 @@ export class AssaultZone {
     if (this.server.enabled && now - this.server.lastTickAt > this.server.tickIntervalMs) {
       this.server.lastTickAt = now;
       if (this.server.pendingDamage > 0) {
-        const serverHpFrozen = memory.isFrozen(this.addrServerHp);
-        if (!serverHpFrozen) {
-          this.server.canonicalHp = Math.max(0, this.server.canonicalHp - this.server.pendingDamage);
-        }
-        // Always drain the queue — the damage event was 'sent.'
-        this.server.pendingDamage = 0;
+        // Routed through codeSegment — NOPing this instruction stops
+        // the server's reconciliation entirely, preserving canonicalHp
+        // even with damage queued.
+        codeSegment.run("server_drain");
       }
       if (this.server.canonicalHp <= 0 && this.player.alive === 1) {
         // Server says you're dead. Set alive=0 (frozen alive=1 will

@@ -10,6 +10,7 @@
 
 import { memory, SimMemory } from "./sim-memory.js";
 import { getToolName, setToolName, isToolFlagged } from "./anticheat.js";
+import { codeSegment } from "./code-segment.js";
 
 const MAX_RESULT_ROWS = 200;
 
@@ -50,6 +51,11 @@ export class Scanner {
     this.$browseStatus   = root.querySelector("#browse-status");
     this.$browseResults  = root.querySelector("#browse-results");
 
+    this.$fwwTarget      = root.querySelector("#fww-target");
+    this.$btnFww         = root.querySelector("#btn-fww");
+    this.$fwwStatus      = root.querySelector("#fww-status");
+    this.$fwwResults     = root.querySelector("#fww-results");
+
     this.$first.addEventListener("click", () => this.firstScan());
     this.$next.addEventListener("click",  () => this.nextScan());
     this.$reset.addEventListener("click", () => this.reset());
@@ -65,6 +71,9 @@ export class Scanner {
     }
     if (this.$btnBrowse) {
       this.$btnBrowse.addEventListener("click", () => this.browseMemory());
+    }
+    if (this.$btnFww) {
+      this.$btnFww.addEventListener("click", () => this.findWhatWrites());
     }
 
     this.$tool     = root.querySelector("#tool-name");
@@ -313,6 +322,68 @@ export class Scanner {
     });
     this.$browseStatus.textContent = `Browsing ${padded}: ${rows.length} cells around it.`;
     if (this.audio) this.audio.scan();
+  }
+
+  // ---- Find What Writes ----
+  //
+  // M22 territory. Take a target memory address, find every code
+  // instruction that has fired recently and writes to it. Each row
+  // gets a NOP / Restore button so the player can patch out the
+  // damage / drain / whatever code path. Real CE: right-click cell
+  // → 'Find what writes to this address' → 'Replace with code that
+  // does nothing.'
+
+  findWhatWrites() {
+    if (!this.$fwwResults) return;
+    let target = (this.$fwwTarget && this.$fwwTarget.value || "").trim();
+    if (!target) {
+      // Default to the first watched DIRECT entry.
+      for (const [, entry] of this.watch) {
+        if (entry.type === "direct") { target = entry.addr; break; }
+      }
+    }
+    if (!target) {
+      this.$fwwStatus.textContent = "No target — type a hex address or watch one first.";
+      return;
+    }
+    if (!target.toLowerCase().startsWith("0x")) target = "0x" + target;
+    const hex = target.slice(2).toUpperCase();
+    if (!/^[0-9A-F]+$/.test(hex)) {
+      this.$fwwStatus.textContent = "Find What Writes: not valid hex.";
+      return;
+    }
+    const padded = "0x" + hex.padStart(12, "0");
+    if (this.$fwwTarget) this.$fwwTarget.value = padded;
+    const hits = codeSegment.findWritesTo(padded);
+    if (hits.length === 0) {
+      this.$fwwResults.innerHTML = '<li class="empty">No recent writes detected. Trigger the damage / drain (take a hit, wait for bleed, etc.) and try again.</li>';
+      this.$fwwStatus.textContent = `0 instructions found writing to ${padded}.`;
+      return;
+    }
+    this.$fwwStatus.textContent = `${hits.length} instruction(s) write to ${padded}.`;
+    this._renderFwwHits(hits);
+  }
+
+  _renderFwwHits(hits) {
+    const html = hits.map(inst => `
+      <li class="row-in${inst.nopped ? " nopped" : ""}" data-id="${inst.id}">
+        <span class="addr">${inst.addr}</span>
+        <span class="val">${inst.name}${inst.nopped ? " · NOP'd" : ""}</span>
+        <button class="add nop-btn" data-id="${inst.id}">${inst.nopped ? "Restore" : "NOP"}</button>
+      </li>
+    `).join("");
+    this.$fwwResults.innerHTML = html;
+    this.$fwwResults.querySelectorAll("button.nop-btn").forEach(b => {
+      b.addEventListener("click", () => {
+        const id = b.dataset.id;
+        if (codeSegment.isNopped(id)) codeSegment.restore(id);
+        else codeSegment.nop(id);
+        // Re-render the same hit list so the toggle reflects the new state.
+        const refreshed = hits.map(h => codeSegment.get(h.id));
+        this._renderFwwHits(refreshed);
+        if (this.audio) this.audio.lock();
+      });
+    });
   }
 
   // ---- Watchlist ----
