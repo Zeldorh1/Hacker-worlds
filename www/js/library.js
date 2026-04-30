@@ -6,6 +6,261 @@
 
 const ARTICLES = [
   {
+    id: "modern-ac-conceptual-tour",
+    title: "Modern Anti-Cheat — A Conceptual Tour",
+    brief: "What kernel-level AC actually does, why your sim DLLs would die on real systems, and where the arms race lives. No real signatures, all concepts.",
+    body: `
+      <h2>Frame</h2>
+      <p>This article is a conceptual tour of what modern anti-cheat
+      products do at a high level. <strong>It uses no real
+      signatures, no real vendor data, no real bypass techniques.</strong>
+      The point is to build intuition for the arms race so you
+      understand why simulator-grade cheats wouldn't survive on a
+      kernel-AC-protected game — and to make defensive-engineering
+      decisions if you ever build the AC side of the equation.</p>
+
+      <h2>The fundamental shift: ring 3 → ring 0</h2>
+      <p>Everything we've built so far runs in user-mode (ring 3).
+      The game's process is in ring 3, your cheat DLL is in ring 3,
+      they share an address space, you have full read/write access
+      to the game's memory. Easy.</p>
+
+      <p>Modern AC products (you know the names) install a kernel
+      driver — ring 0. From kernel mode they can:</p>
+
+      <ul>
+        <li>Read the memory of any user-mode process without going
+            through ReadProcessMemory (which user-mode AC bypasses
+            could detour).</li>
+        <li>Enumerate every loaded module in every process at any
+            time. DLL hijacking gets caught.</li>
+        <li>Watch for new processes starting (CreateProcess
+            notification routines). Loader EXEs get caught the
+            moment they spawn.</li>
+        <li>Inspect handles. CreateRemoteThread + LoadLibraryA
+            triggers a handle creation event the driver sees.</li>
+        <li>Read CR3 / page tables. Manual mapping that hides from
+            user-mode module enumeration is still visible.</li>
+      </ul>
+
+      <p>Your simulator DLL would be visible to all of these. The
+      countermeasures (kernel-level driver of your own that races the
+      AC driver, hypervisor-based hiding) require techniques that are
+      out of scope for an educational curriculum and largely out of
+      scope ethically.</p>
+
+      <h2>Three categories of detection</h2>
+
+      <h3>1. Signature-based</h3>
+      <p>The AC driver hashes your DLL's bytes (or specific sections
+      of it) at load time and compares against a known-bad list.
+      Simple and fast. Defeated by:</p>
+      <ul>
+        <li>Mangled symbol names + XOR-encrypted strings (the M32
+            simulator lesson)</li>
+        <li>Per-build polymorphism (recompile changes byte layout)</li>
+        <li>Manual mapping with byte-level transformations</li>
+      </ul>
+      <p>Real CAEU's plaintext "Aimbot" / "ESP" strings would be
+      caught instantly by signature scans on any modern game.</p>
+
+      <h3>2. Behavioral</h3>
+      <p>The AC driver watches what your inputs LOOK like. Even with
+      a signature-clean DLL, you trip behavioral detection by:</p>
+      <ul>
+        <li>Aim acceleration that's superhuman (instant 180° snaps)</li>
+        <li>Reaction times faster than physically possible (tens of
+            milliseconds vs. the human ~200ms floor)</li>
+        <li>Perfect tracking through occlusion (you keep aim on an
+            enemy you couldn't possibly see)</li>
+        <li>Mouse delta patterns inconsistent with hardware (mouse
+            sensors generate characteristic jitter — perfect lines
+            don't)</li>
+        <li>Identical timings across kills (humans vary; bots don't)</li>
+      </ul>
+      <p>Defeated by 'humanization': add jitter, reaction-delay,
+      smoothing curves, miss-on-purpose. Same shape as accessibility
+      tools that smooth aim for users with motor impairments — the
+      problem is statistical, not technical.</p>
+
+      <h3>3. Hardware / system fingerprinting</h3>
+      <p>If you get banned, the AC fingerprints your motherboard /
+      drive serials / MAC / etc. so you can't just buy the game
+      again on a new account. Defeated by hardware spoofers (a
+      different rabbit hole), or by simply accepting the ban.</p>
+
+      <h2>Network-side defenses</h2>
+      <p>Server-side anti-cheat exists alongside kernel AC and is
+      arguably more important:</p>
+      <ul>
+        <li><strong>Lag compensation</strong>: server records
+            historical positions, validates hits against where the
+            target actually was N ms ago. Bots that aim at the
+            target's CURRENT (lag-adjusted) position miss because
+            the server uses the lag-rewinded position for hit
+            registration.</li>
+        <li><strong>Packet HMAC signatures</strong>: every packet
+            includes a per-session-key MAC. Modified packets fail
+            the check. Defeats simple packet-craft (M31 territory)
+            on games that ship this.</li>
+        <li><strong>Sequence numbers + replay windows</strong>:
+            packets are numbered, server rejects out-of-window
+            duplicates. Defeats replay attacks.</li>
+        <li><strong>Movement bounds checking</strong>: server
+            knows max movement speed; rejects positions that imply
+            you teleported. Defeats raw position packet
+            forgery.</li>
+        <li><strong>Hit-event validation</strong>: server checks
+            whether your shot's trajectory intersects the
+            (server-side) target hitbox at the time of fire. 999-
+            damage packets get rejected if the trajectory's
+            impossible.</li>
+      </ul>
+
+      <h2>Where this leaves the curriculum</h2>
+      <p>Everything M01-M32 teaches is real, useful, and works on
+      games like AssaultCube where these defenses don't apply.
+      The M32 mission lets you feel the signature-scan arms race in
+      miniature without me handing you anything that would actually
+      defeat a commercial AC. If you ever want to build the AC side
+      (defensive game security as a career), every lesson here is
+      directly applicable in reverse: you've seen what cheats do, so
+      you know what to detect.</p>
+
+      <p>For the offensive side targeting modern protected games:
+      that's a path requiring driver-development experience, deep
+      Windows internals knowledge, willingness to operate in legal
+      grey areas, and a real player base who didn't consent to
+      being fought against. Not a path this curriculum endorses or
+      enables. AC's the right target — it's open-source, it's
+      practice-friendly, the techniques transfer fully.</p>
+    `,
+  },
+  {
+    id: "packet-manipulation",
+    title: "Packet Manipulation — Crafting and Replaying",
+    brief: "Hook the network layer, modify packets in flight, replay captured packets. The server-comms angle of the cheat arms race.",
+    body: `
+      <h2>The fourth memory</h2>
+      <p>Up till now you've worked with three kinds of state: cells
+      in memory (M01-M16), code instructions (M22), and render
+      buffers (M26). The fourth is the network: the packets your
+      game sends to the server and the packets the server sends
+      back. Hooking those gives you a fourth angle of attack.</p>
+
+      <h2>Where to hook</h2>
+      <p>On Windows, all TCP/UDP traffic goes through
+      <code>ws2_32.dll</code>:</p>
+
+      <pre><code>// Real-world C++ MinHook detour
+typedef int (WSAAPI* send_t)(SOCKET, const char*, int, int);
+send_t oSend = nullptr;
+
+int WSAAPI hkSend(SOCKET s, const char* buf, int len, int flags) {
+    // 'buf' is the raw packet bytes. Length-prefixed structures,
+    // protobufs, custom binary — depends on the game.
+    if (is_damage_packet(buf, len)) {
+        edit_damage_field(buf, len, 999);
+    }
+    return oSend(s, buf, len, flags);
+}
+
+void install() {
+    HMODULE ws2 = GetModuleHandleA("ws2_32.dll");
+    void* sendAddr = GetProcAddress(ws2, "send");
+    MH_CreateHook(sendAddr, &hkSend, (void**)&oSend);
+    MH_EnableHook(sendAddr);
+}</code></pre>
+
+      <p>The simulator equivalent is <code>register_packet_hook("send", fn)</code>.
+      The game emits a packet object via <code>_sendPacket(pkt)</code>;
+      your hook gets it, can return it as-is, modified, or null
+      (drop). Same pattern, JS objects instead of byte buffers.</p>
+
+      <h2>The four packet exploits</h2>
+
+      <h3>1. Inspection</h3>
+      <p>M30. Hook send + recv, log everything to console. Phase
+      one of any net-side cheat — you have to understand the
+      protocol before you craft. Real games sometimes send hundreds
+      of packet types per second; identify the ones you care about
+      by triggering specific actions and watching what flies past.</p>
+
+      <h3>2. Crafting (modification in flight)</h3>
+      <p>M31. Mutate outgoing fields. Damage = 999. Position = wherever
+      you want. Ammo = max. The server believes whatever you send IF
+      it doesn't validate.</p>
+
+      <p>This works against AssaultCube because AC's server logic
+      is naive — it trusts the client's claim of "I dealt 25
+      damage to player 3." Modern competitive games server-validate
+      everything: they recompute damage from the (server-owned)
+      weapon stats, target HP, and shot trajectory. Your "999"
+      packet gets capped at the real weapon damage.</p>
+
+      <h3>3. Replay</h3>
+      <p>Capture a specific packet (e.g., the one the server sends
+      that says "you scored a kill"), re-send it. Naive servers
+      credit the kill multiple times. Defeated by sequence numbers:
+      every packet has an incrementing nonce, server rejects
+      duplicates within the replay window.</p>
+
+      <h3>4. Drop</h3>
+      <p>The recv-hook returns null instead of the packet, the
+      simulator never applies it. Useful for:</p>
+      <ul>
+        <li>Dropping "you died" packets — server thinks you're
+            dead but client never registers it (M19 territory but
+            at the network layer).</li>
+        <li>Dropping nerf-the-cheater packets — some games send
+            "you've been server-banned" notifications; drop them
+            and you keep playing.</li>
+        <li>Dropping admin-spectator notifications — keep cheating
+            with the safety of not knowing they're watching (sketchy
+            for obvious reasons).</li>
+      </ul>
+
+      <h2>Why this is harder than scanner-side cheats</h2>
+      <ul>
+        <li><strong>Encryption</strong>: most modern games TLS-wrap
+            their game traffic. Hooking <code>send</code> below the
+            TLS layer gives you ciphertext. Hook ABOVE the TLS layer
+            (closer to the game's serialization code) — but that
+            requires reverse-engineering the game's packet
+            serializers, much harder than scanning memory cells.</li>
+        <li><strong>Protocol opacity</strong>: even unencrypted
+            packets use custom binary formats (varint length
+            prefixes, packed bitfields, type tags). You're
+            decoding it yourself.</li>
+        <li><strong>Stateful timing</strong>: many packet types
+            have to arrive in specific orders, with specific
+            timing. Crafted packets that violate these get
+            ignored or trip detection.</li>
+      </ul>
+
+      <h2>Defenses you'll see</h2>
+      <table style="width:100%; border-collapse:collapse; margin: 0.5rem 0;">
+        <tr><th style="text-align:left;">Defense</th><th style="text-align:left;">Beats which exploit</th></tr>
+        <tr><td>HMAC per packet</td><td>Crafting</td></tr>
+        <tr><td>Sequence numbers</td><td>Replay</td></tr>
+        <tr><td>Server-side validation</td><td>Crafting (revalidates content)</td></tr>
+        <tr><td>Lag compensation</td><td>Forged hit packets</td></tr>
+        <tr><td>TLS / protocol encryption</td><td>All of the above (lower-layer)</td></tr>
+        <tr><td>Heartbeat + drop detection</td><td>Drop</td></tr>
+      </table>
+
+      <h2>How M30-M31 simulate this</h2>
+      <p>The simulator's network layer is intentionally naive — no
+      HMAC, no sequence numbers, no server-side revalidation. So
+      the M31 'craft a 999 damage packet' exploit lands.
+      That's pedagogically right: AC's network layer is similarly
+      naive (the game's an offline-first / LAN-friendly title
+      where strong server validation wasn't a goal). The
+      techniques transfer to AC; the lessons translate to the
+      modern landscape via 'and here's why this stops working.'</p>
+    `,
+  },
+  {
     id: "ac-offsets-cheat-sheet",
     title: "AssaultCube Offsets — The Reference Sheet",
     brief: "The hardcoded numbers your trainer needs. Public, stable, copy into your .cpp.",

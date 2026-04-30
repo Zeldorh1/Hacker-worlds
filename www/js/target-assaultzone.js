@@ -95,6 +95,28 @@ export class AssaultZone {
       tickIntervalMs: 1500,
     };
 
+    // M30+ NETWORK — packet emission for missions that opt in via
+    // `network: true`. When enabled, fire() and similar paths route
+    // damage application through _sendPacket so DLL packet hooks
+    // can inspect / modify / drop them.
+    this.network = {
+      enabled: false,
+      log: [],
+    };
+
+    // M32 — simulated 'kernel' anti-cheat scanner. When enabled, it
+    // periodically inspects the loaded DLL's source for known feature
+    // strings (Aimbot / ESP / wallhack / etc) and tracks violations.
+    // This is purely conceptual — the strings here are made-up
+    // placeholders, not signatures from any real anti-cheat product.
+    this.acScanner = {
+      enabled: false,
+      lastScanAt: 0,
+      scanIntervalMs: 2000,
+      violations: 0,
+      lastHits: [],
+    };
+
     // Player stats live in a contiguous 'player struct' in fake memory.
     // Real games do this — a single allocation holds every per-player
     // value, and code accesses them via [base + offset]. M16 STRUCT
@@ -365,6 +387,11 @@ export class AssaultZone {
     this.server.lastTickAt = 0;
     this.respawnPoint.x = SPAWN.x;
     this.respawnPoint.y = SPAWN.y;
+    this.network.enabled = false;
+    this.network.log = [];
+    this.acScanner.enabled = false;
+    this.acScanner.violations = 0;
+    this.acScanner.lastHits = [];
     codeSegment.reset();
     document.getElementById("hud-server")?.setAttribute("hidden", "");
     // Unfreeze any cells from a previous run.
@@ -445,6 +472,90 @@ export class AssaultZone {
     document.getElementById("hud-server")?.setAttribute("hidden", "");
   }
 
+  // M30+ Networking. Once enabled, fire() routes damage application
+  // through a packet pipeline that DLL hooks can intercept.
+  enableNetwork() {
+    this.network.enabled = true;
+    this.network.log = [];
+  }
+  disableNetwork() {
+    this.network.enabled = false;
+  }
+
+  // M32 — kernel-AC scanner concept. Periodically scans the loaded
+  // DLL for known cheat-feature strings; violations climb on hits.
+  // Strings here are intentionally generic / made-up so this stays
+  // conceptual — nothing maps to a real anti-cheat product.
+  enableAcScanner(suspiciousStrings) {
+    this.acScanner.enabled = true;
+    this.acScanner.violations = 0;
+    this.acScanner.lastScanAt = performance.now();
+    this.acScanner.lastHits = [];
+    this.acScanner.suspiciousStrings = suspiciousStrings;
+  }
+  disableAcScanner() {
+    this.acScanner.enabled = false;
+  }
+
+  /** Run an outgoing packet through DLL send-hooks. Returns the
+   *  possibly-modified packet, or null if a hook dropped it. */
+  _sendPacket(pkt) {
+    if (!this.network.enabled) return pkt;
+    const dll = (typeof window !== "undefined" && window.__hw) ? window.__hw.dll : null;
+    let p = pkt;
+    if (dll && dll.packetHooks) {
+      for (const h of dll.packetHooks) {
+        if (h.direction !== "send") continue;
+        try {
+          const r = h.fn(p);
+          if (r === null) return null;       // dropped
+          if (r && typeof r === "object") p = r;
+        } catch (e) {
+          if (dll.log) dll.log("[packet send-hook error] " + e.message);
+        }
+      }
+    }
+    this.network.log.push({ dir: "send", packet: p, t: performance.now() });
+    if (this.network.log.length > 50) this.network.log.shift();
+    return p;
+  }
+
+  /** Run an incoming packet through DLL recv-hooks, then apply its
+   *  effects. Drop-able by hooks (return null). */
+  _recvPacket(pkt) {
+    if (!this.network.enabled) return;
+    const dll = (typeof window !== "undefined" && window.__hw) ? window.__hw.dll : null;
+    let p = pkt;
+    if (dll && dll.packetHooks) {
+      for (const h of dll.packetHooks) {
+        if (h.direction !== "recv") continue;
+        try {
+          const r = h.fn(p);
+          if (r === null) return;            // dropped
+          if (r && typeof r === "object") p = r;
+        } catch (e) {
+          if (dll.log) dll.log("[packet recv-hook error] " + e.message);
+        }
+      }
+    }
+    this.network.log.push({ dir: "recv", packet: p, t: performance.now() });
+    if (this.network.log.length > 50) this.network.log.shift();
+    // Apply packet effects.
+    switch (p.type) {
+      case "kill_credit":
+        this.killCount++;
+        break;
+      case "you_died":
+        if (this.player.alive === 1) {
+          this.player.alive = 0;
+          this.player.respawnTimerMs = RESPAWN_DELAY_MS;
+        }
+        break;
+      // 'position', 'fire' etc are informational — server side state
+      // change happens via separate paths (server tick from M18).
+    }
+  }
+
   enableWatchdog() {
     this.watchdog.enabled = true;
     this.watchdog.tickValue = 0;
@@ -497,12 +608,35 @@ export class AssaultZone {
       return true;
     }
     const dmg = Math.max(0, this.weapon.damage | 0);
-    e.hp = Math.max(0, e.hp - dmg);
     if (this.audio) this.audio.scan();
-    if (e.hp <= 0) {
-      e.alive = 0;
-      this.killCount++;
-      if (aimbotting) this.aimbotKills++;
+
+    if (this.network.enabled) {
+      // Route damage through packet pipeline. DLL hooks can modify
+      // amount, change target, or drop the packet entirely.
+      const pkt = this._sendPacket({
+        type: "damage", target: e.id, amount: dmg, t: now,
+      });
+      if (pkt && typeof pkt.amount === "number") {
+        const dmgApplied = Math.max(0, pkt.amount | 0);
+        const targetEnemy = (pkt.target !== e.id)
+          ? this.enemyManager.enemies.find(x => x.id === pkt.target && x.alive)
+          : e;
+        if (targetEnemy) {
+          targetEnemy.hp = Math.max(0, targetEnemy.hp - dmgApplied);
+          if (targetEnemy.hp <= 0) {
+            targetEnemy.alive = 0;
+            this._recvPacket({ type: "kill_credit", target: targetEnemy.id, t: now });
+            if (aimbotting) this.aimbotKills++;
+          }
+        }
+      }
+    } else {
+      e.hp = Math.max(0, e.hp - dmg);
+      if (e.hp <= 0) {
+        e.alive = 0;
+        this.killCount++;
+        if (aimbotting) this.aimbotKills++;
+      }
     }
     return true;
   }
@@ -571,6 +705,12 @@ export class AssaultZone {
     this.player.x = nx;
     this.player.y = ny;
     this.tilesMoved++;
+    // Emit a position packet for missions that opt in. Real games
+    // send these every server tick (~30Hz); the inspection / craft
+    // missions can hook these for movement-based logic.
+    if (this.network.enabled) {
+      this._sendPacket({ type: "position", x: nx, y: ny, t: performance.now() });
+    }
   }
 
   _onHazardTile() {
@@ -627,6 +767,39 @@ export class AssaultZone {
     if (this.enemiesActive) {
       this.enemyManager.step(now);
       this._updateCrosshair();
+    }
+
+    // M32 — kernel-AC scanner concept. Every scanIntervalMs, inspect
+    // the loaded DLL source for known suspicious strings + the cheat
+    // labels / packet-hook count. Each match adds a violation. The
+    // mission fails if violations cross a threshold. Conceptual only:
+    // the 'strings' are placeholders, not real anti-cheat signatures.
+    if (this.acScanner.enabled &&
+        now - this.acScanner.lastScanAt > this.acScanner.scanIntervalMs) {
+      this.acScanner.lastScanAt = now;
+      const dll = (typeof window !== "undefined" && window.__hw)
+        ? window.__hw.dll : null;
+      const hits = [];
+      if (dll && dll.running) {
+        // Scan the loaded DLL source.
+        const source = (typeof document !== "undefined" &&
+          document.getElementById("dll-code"))
+          ? document.getElementById("dll-code").value : "";
+        const text = source.toLowerCase();
+        for (const sig of (this.acScanner.suspiciousStrings || [])) {
+          if (text.includes(sig.toLowerCase())) hits.push("source:" + sig);
+        }
+        // Scan cheat labels.
+        for (const c of dll.cheats) {
+          for (const sig of (this.acScanner.suspiciousStrings || [])) {
+            if (c.label.toLowerCase().includes(sig.toLowerCase())) {
+              hits.push("cheat-label:" + sig);
+            }
+          }
+        }
+      }
+      this.acScanner.lastHits = hits;
+      if (hits.length > 0) this.acScanner.violations += hits.length;
     }
 
     // Recoil decay — drops by ~30 units per second back toward zero.

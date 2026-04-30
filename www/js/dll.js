@@ -56,6 +56,12 @@ export class DllRuntime {
      *  fires alongside the parent's onTick every frame, so a
      *  stager → payload chain just works. */
     this._payloadTicks = [];
+    /** Packet hooks — { direction: "send"|"recv", fn }. The game
+     *  sim runs each outgoing/incoming packet through the matching
+     *  hooks before applying it. fn(packet) → packet | null
+     *  (null drops the packet). Real-world equivalent: a detour on
+     *  ws2_32!send / ws2_32!recv. */
+    this.packetHooks = [];
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -101,6 +107,22 @@ export class DllRuntime {
         this.renderHooks.push(fn);
         this._emit();
       },
+      // M30+ — install a packet hook. direction is "send" or "recv".
+      // fn(packet) is called for every matching packet; return the
+      // (possibly modified) packet, or null to drop it. Real-world
+      // equivalent: MinHook detour on ws2_32!send / ws2_32!recv.
+      register_packet_hook: (direction, fn) => {
+        if (direction !== "send" && direction !== "recv") {
+          this.log("[register_packet_hook] direction must be 'send' or 'recv'");
+          return;
+        }
+        if (typeof fn !== "function") {
+          this.log("[register_packet_hook] fn must be a function");
+          return;
+        }
+        this.packetHooks.push({ direction, fn });
+        this._emit();
+      },
       // M27 STAGER — load a payload string as if it were a second DLL.
       // The stager DLL's job is to bootstrap, then call this with the
       // real cheat code (which can be embedded as a string literal,
@@ -124,7 +146,7 @@ export class DllRuntime {
             "read", "write", "freeze", "unfreeze", "is_frozen",
             "addr_of", "read_label", "write_label", "freeze_label",
             "find_pointers_to", "log", "register_cheat",
-            "register_render_hook", "load_payload",
+            "register_render_hook", "register_packet_hook", "load_payload",
             wrapped
           );
           const a = this._makeApi();
@@ -132,7 +154,7 @@ export class DllRuntime {
             a.read, a.write, a.freeze, a.unfreeze, a.is_frozen,
             a.addr_of, a.read_label, a.write_label, a.freeze_label,
             a.find_pointers_to, a.log, a.register_cheat,
-            a.register_render_hook, a.load_payload
+            a.register_render_hook, a.register_packet_hook, a.load_payload
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -200,7 +222,7 @@ return {
         "read", "write", "freeze", "unfreeze", "is_frozen",
         "addr_of", "read_label", "write_label", "freeze_label",
         "find_pointers_to", "log", "register_cheat",
-        "register_render_hook", "load_payload",
+        "register_render_hook", "register_packet_hook", "load_payload",
         wrapped
       );
     } catch (e) {
@@ -213,7 +235,7 @@ return {
         a.read, a.write, a.freeze, a.unfreeze, a.is_frozen,
         a.addr_of, a.read_label, a.write_label, a.freeze_label,
         a.find_pointers_to, a.log, a.register_cheat,
-        a.register_render_hook, a.load_payload
+        a.register_render_hook, a.register_packet_hook, a.load_payload
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
@@ -294,6 +316,7 @@ return {
     this.cheats = [];           // clear registered cheats — re-inject re-registers
     this.renderHooks = [];      // clear render hooks
     this._payloadTicks = [];    // clear payload tick functions
+    this.packetHooks = [];      // clear packet hooks
     this.log("DLL ejected");
     this._emit();
   }
