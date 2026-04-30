@@ -293,6 +293,16 @@ export class AssaultZone {
       () => this.enemyManager.baseAddr,
       () => {},   // read-only from gameplay's perspective
       "ptr");
+
+    // Static pointer cell whose VALUE is the local player struct base.
+    // This is the simulator's analogue of 'ac_client.exe + 0x10F4F4' in
+    // real AssaultCube — the cell C++ trainers dereference to reach
+    // the player struct. M48 STATIC BASE DISCOVERY teaches you to find
+    // it by pointer-scanning a known player address (player.hp / .x).
+    this.addrLocalPlayerPtr = memory.bindGameValue("local_player_ptr",
+      () => this.playerStructBase,
+      () => {},
+      "ptr");
     this.rebaseCount = 0;
 
     // Watchdog (M6) — a fake "anti-tamper" thread the target runs.

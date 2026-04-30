@@ -45,16 +45,19 @@ import { mission44 } from "./mission-44.js";
 import { mission45 } from "./mission-45.js";
 import { mission46 } from "./mission-46.js";
 import { mission47 } from "./mission-47.js";
+import { mission48 } from "./mission-48.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
-// list (and which "M01..M47" badge is shown). We sometimes reorder to
+// list (and which "M01..M48" badge is shown). We sometimes reorder to
 // put a teaching mission right after the one it builds on, even when
 // its file was added later. Internal IDs (m47 etc) never change, so
 // saved progress in localStorage is preserved across reorderings.
 export const MISSIONS = [
   mission01, mission02, mission03, mission04, mission05,
-  mission06, mission07, mission08, mission09,
+  mission06, mission07, mission08,
+  mission48,    // STATIC BASE DISCOVERY — natural follow-up to M08 ptr scan
+  mission09,
   mission10, mission11, mission12,
   mission13, mission14, mission15,
   mission16, mission17, mission18, mission19, mission20,

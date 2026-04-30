@@ -6,6 +6,174 @@
 
 const ARTICLES = [
   {
+    id: "finding-base-address",
+    title: "Finding the Base Address — Module Base vs Static Offsets",
+    brief: "Where 0x10F4F4 actually comes from. The two meanings of 'base.' How to derive the offset for any game.",
+    body: `
+      <h2>The thing M24/M29/M47 hand-waved over</h2>
+      <p>Every prior mission has been pasting <code>0x10F4F4</code>
+      into trainer code as if it's gospel. Now: where does that
+      number ACTUALLY come from? How would you derive it for a
+      different game? This article answers both.</p>
+
+      <h2>"Base address" means two different things</h2>
+      <p>This terminology trips everyone. There are TWO bases in
+      play, and they're not the same:</p>
+
+      <h3>1. The MODULE BASE</h3>
+      <p>When Windows loads <code>ac_client.exe</code> (or any DLL
+      it uses) into your process's address space, it picks a
+      virtual address to load it at. Maybe <code>0x00400000</code>,
+      maybe <code>0x6A4F0000</code>, maybe somewhere else — Windows
+      randomizes it on every launch (ASLR — Address Space Layout
+      Randomization).</p>
+
+      <p>Recover this address in your trainer with:</p>
+      <pre><code>HMODULE hMod = GetModuleHandleA("ac_client.exe");
+uintptr_t module_base = (uintptr_t)hMod;</code></pre>
+
+      <p>The number changes every time the game launches. Don't
+      hardcode it.</p>
+
+      <h3>2. The STATIC OFFSET</h3>
+      <p>Inside <code>ac_client.exe</code>'s compiled binary, there's
+      a global variable in the <code>.data</code> section that holds
+      a pointer to the dynamically-allocated player struct. The
+      OFFSET from the module's start to this global is stable —
+      it's part of the compiled binary and doesn't change at
+      runtime.</p>
+
+      <p>For AssaultCube 1.2.0.2 that offset is <code>0x10F4F4</code>.
+      Different game version → potentially different number, but
+      within a single binary the offset is fixed.</p>
+
+      <p>This is what you hardcode in your trainer.</p>
+
+      <h3>Combining them</h3>
+      <pre><code>uintptr_t module_base = (uintptr_t)GetModuleHandleA("ac_client.exe");
+uintptr_t static_addr = module_base + 0x10F4F4;
+uintptr_t player_struct = *(uintptr_t*)static_addr;
+//      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//      Read the pointer stored at module_base + 0x10F4F4.
+//      That pointer's value is the dynamic struct's address.
+*(int*)(player_struct + 0xEC) = 100;   // HP
+</code></pre>
+
+      <p><code>module_base</code> moves per launch. <code>0x10F4F4</code>
+      stays. Combined every launch they resolve to the right
+      static cell, which holds the current dynamic struct's
+      address.</p>
+
+      <h2>How to find the static offset for ANY game</h2>
+      <p>The workflow you've already practiced (M01, M04, M08).
+      Reframed for the 'find me a static base' use case:</p>
+
+      <h3>Step 1: scan for any dynamic value</h3>
+      <p>HP, ammo, anything in the struct you eventually want to
+      access. Use Cheat Engine's normal value scanner. Result: a
+      dynamic address like <code>0x0CA56E26AB61</code>.</p>
+
+      <h3>Step 2: pointer scan from that dynamic address</h3>
+      <p>Right-click the dynamic address in CE → 'Pointer scan
+      for this address'. CE finds every memory cell whose value
+      (potentially after some offset) resolves to your target.
+      You'll get hundreds or thousands of candidates.</p>
+
+      <h3>Step 3: filter to module-relative results</h3>
+      <p>CE highlights pointer-scan results whose static path
+      lives inside <code>ac_client.exe</code>'s loaded module
+      range. These are the candidates that survive game restarts.</p>
+
+      <p>The result row will look like:</p>
+      <pre><code>"ac_client.exe"+0x10F4F4 → +0xEC = HP
+└────────────┬────────────┘   └─┬─┘
+   STATIC PATH                  DYNAMIC OFFSET</code></pre>
+
+      <p>Module name + module-relative offset → static. Plus
+      one struct-internal offset (<code>0xEC</code>) for the field
+      you want.</p>
+
+      <h3>Step 4: verify the path</h3>
+      <p>Restart the game (closes process, reloads with new ASLR
+      base). Re-scan briefly to confirm CE's resolved chain still
+      finds your value. If it does, the static offset is real.
+      If not, that path was a coincidence — try another candidate.</p>
+
+      <h3>Step 5: hardcode in your trainer</h3>
+      <pre><code>constexpr uintptr_t OFF_PLAYER_BASE = 0x10F4F4;  // from CE pointer scan
+constexpr uintptr_t OFF_HP          = 0xEC;       // from M16 struct browse</code></pre>
+
+      <p>The numbers are derived; not invented.</p>
+
+      <h2>For different games — what changes</h2>
+      <table style="width:100%; border-collapse:collapse; margin:0.5rem 0;">
+        <tr><th style="text-align:left;">Game</th><th style="text-align:left;">Module name</th><th style="text-align:left;">Offset stability</th></tr>
+        <tr><td>AssaultCube 1.2.0.2</td><td>ac_client.exe</td><td>Stable for years (open-source, no patches)</td></tr>
+        <tr><td>Older single-player game</td><td>game.exe</td><td>Often stable across patches</td></tr>
+        <tr><td>Live-service / mobile</td><td>app.exe / app.so</td><td>Drift every patch — use AOB scans (M44)</td></tr>
+        <tr><td>Game with .DLLs split</td><td>core.dll, render.dll, etc</td><td>Each DLL has its own base — name in GetModuleHandle</td></tr>
+      </table>
+
+      <h2>What CE's pointer scanner actually does internally</h2>
+      <p>The algorithm: walk every cell in mapped memory. For each
+      cell, check if treating its value as an address (with various
+      small offsets added) lands on your target. If yes, recursively
+      pointer-scan THAT cell to find what points to IT. Repeat until
+      one of the chain links lands inside a module's static memory
+      range — you've got a stable path.</p>
+
+      <p>It's brute force. Big games can take 10-30 minutes to scan
+      thoroughly. The simulator's pointer scan (M08) does the same
+      thing in JS, scaled down to thousands of cells instead of
+      millions.</p>
+
+      <h2>How M48 simulates this</h2>
+      <p>The simulator has <code>entity_arr_ptr</code> — a static
+      cell whose value is the entity array's current base. Its
+      address doesn't change between mission runs (within a session).
+      Run pointer scan on a known enemy address, find the chain
+      <code>[entity_arr_ptr] + 0x04</code>, and you've found the
+      simulator's equivalent of <code>module_base + 0x10F4F4</code>.</p>
+
+      <p>Tap RESTART to trigger a rebase — the entity array
+      relocates, but the static cell's ADDRESS doesn't. Its
+      VALUE updates to the new array base. The chain re-resolves
+      automatically. Same mechanism that makes a real C++ trainer
+      survive game restarts: the module-relative path is stable;
+      what it points TO can move freely.</p>
+
+      <h2>Common gotchas</h2>
+      <ul>
+        <li><strong>Pointer scan returns no module-relative
+            results.</strong> The game stores the pointer somewhere
+            CE can't classify as static (e.g., on the heap of a
+            different DLL). Try scanning a different field; some
+            fields are reachable via static paths and others aren't.</li>
+        <li><strong>Pointer scan returns hundreds of valid
+            paths.</strong> Pick the SHORTEST chain (fewest levels
+            of indirection). Long chains are slower at runtime
+            and more fragile.</li>
+        <li><strong>Pointer 'survives' once but breaks across
+            restarts.</strong> Means it's static FOR THIS SESSION
+            but actually allocated dynamically with a stable
+            address. Re-launch the game multiple times; only paths
+            stable across all restarts are real statics.</li>
+        <li><strong>The module isn't loaded yet when your DLL
+            initializes.</strong> Some plugins / mods inject before
+            the main module is mapped. <code>GetModuleHandle</code>
+            returns NULL. Solution: spin in a thread until the
+            module appears. Standard pattern for early injection.</li>
+      </ul>
+
+      <h2>Further reading</h2>
+      <p>The "Anatomy" article (DLL ANATOMY) for how
+      module_base + offset gets dereferenced in C++. The "AOB"
+      article (M44 PATTERN SCAN) for what to do when offsets
+      drift across patches. Together with this article, that's
+      the full base-resolution toolkit.</p>
+    `,
+  },
+  {
     id: "dll-anatomy-line-by-line",
     title: "DLL Anatomy — Reading the C++ Line by Line",
     brief: "Every line of a Windows trainer DLL, explained. What each piece does. What carries over to any game. What changes per target.",
