@@ -6,6 +6,385 @@
 
 const ARTICLES = [
   {
+    id: "real-world-bridge-assaultcube",
+    title: "Real-World Bridge — From the Simulator to AssaultCube",
+    brief: "The whole stack. Visual Studio setup, DllMain skeleton, AC offsets, menu, ESP, code patching — actual buildable C++.",
+    body: `
+      <h2>What this article is</h2>
+      <p>You've completed M01-M23 in the simulator. Every concept maps
+      to a real technique you can use against an actual game. This
+      article is the bridge: the toolchain, the project layout, the
+      C++ code, and the AssaultCube-specific offsets you need to
+      ship something equivalent.</p>
+
+      <p><strong>Target:</strong> AssaultCube — open-source FPS,
+      single-player or local-network, freely available at
+      assault.cubers.net. Picked because it's open source (you can
+      grade your own work against the headers), runs well, and has a
+      decade of community reverse-engineering tutorials behind it.
+      Don't run cheats on online servers without consent — bot
+      servers and offline matches only.</p>
+
+      <h2>1. The toolchain</h2>
+      <ul>
+        <li><strong>Visual Studio Community</strong> (free, any version
+            2017+). For maximum CAEU-style compatibility, install the
+            "Desktop development with C++" workload + the "MSVC v141
+            (or v142) - VS xxxx C++ x86/x64 build tools" component.</li>
+        <li><strong>DirectX 9 SDK (June 2010)</strong> — Microsoft
+            archive. Needed for D3DX9 functions used by ESP rendering.
+            Installs to <code>C:\\Program Files (x86)\\Microsoft DirectX SDK (June 2010)\\</code>.</li>
+        <li><strong>MinHook</strong> or <strong>Detours</strong> — for
+            hooking the game's <code>EndScene</code> / <code>Present</code>
+            functions. MinHook is MIT-licensed, header + small static lib.
+            <code>github.com/TsudaKageyu/minhook</code></li>
+        <li><strong>ImGui</strong> (optional but recommended) — drop-in
+            menu UI library. <code>github.com/ocornut/imgui</code> +
+            the <code>imgui_impl_dx9.cpp</code> backend.</li>
+        <li><strong>AssaultCube</strong> — assault.cubers.net. Install
+            it, run <code>ac_client.exe</code> at least once.</li>
+      </ul>
+
+      <h2>2. Project setup (Visual Studio, .vcxproj)</h2>
+      <p>File → New → Project → Empty Project (C++).</p>
+      <p>Project Properties (set for both Debug and Release, x86 / Win32):</p>
+      <ul>
+        <li><strong>General → Configuration Type</strong>: Dynamic Library (.dll)</li>
+        <li><strong>VC++ Directories → Include Directories</strong>:
+            add <code>$(DXSDK_DIR)Include</code> + your minhook /
+            imgui include paths</li>
+        <li><strong>VC++ Directories → Library Directories</strong>:
+            add <code>$(DXSDK_DIR)Lib\\x86</code> + minhook lib path</li>
+        <li><strong>Linker → Input → Additional Dependencies</strong>:
+            <code>d3d9.lib;d3dx9.lib;user32.lib;libMinHook.x86.lib</code></li>
+        <li><strong>C/C++ → Code Generation → Runtime Library</strong>:
+            <code>Multi-threaded (/MT)</code> if you want a portable
+            self-contained DLL, <code>(/MD)</code> if you don't mind
+            requiring the C++ runtime on the host.</li>
+      </ul>
+
+      <p>Or skip the IDE and build with cl.exe directly:</p>
+      <pre><code>cl /LD /EHsc /MT /I"%DXSDK_DIR%Include" \\
+   cheat.cpp menu.cpp esp.cpp hooks.cpp \\
+   /link /LIBPATH:"%DXSDK_DIR%Lib\\x86" \\
+        d3d9.lib d3dx9.lib user32.lib kernel32.lib \\
+        /OUT:cheat.dll</code></pre>
+
+      <h2>3. The DllMain skeleton</h2>
+      <p>Mirrors exactly what the M21 simulator template does:</p>
+      <pre><code>// cheat.cpp
+#include &lt;windows.h&gt;
+#include &lt;process.h&gt;
+
+void cheat_main(void*);   // forward declaration
+
+BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(hinst);
+        _beginthread(cheat_main, 0, nullptr);
+    }
+    return TRUE;
+}</code></pre>
+
+      <p>That's the exact disassembly pattern you saw in the PE dump's
+      entry point: <code>cmp [ebp+0xc], 1</code> is the
+      <code>reason == DLL_PROCESS_ATTACH</code> check, and the
+      <code>call</code> below it goes to the function that spawns
+      <code>_beginthread</code>.</p>
+
+      <h2>4. The cheat thread loop</h2>
+      <pre><code>#include &lt;windows.h&gt;
+
+void cheat_main(void*) {
+    // Wait for the game to be fully initialised. AC takes a couple
+    // of seconds to load before the player struct exists.
+    Sleep(3000);
+
+    while (true) {
+        // Menu hotkey toggle (matches M23 simulator pattern).
+        if (GetAsyncKeyState(VK_DELETE) & 1) {
+            menu_visible = !menu_visible;
+        }
+
+        // Always-on cheats (run regardless of menu state).
+        if (cheats.god_mode) {
+            apply_god_mode();
+        }
+        if (cheats.infinite_ammo) {
+            apply_infinite_ammo();
+        }
+
+        Sleep(16);   // ~60Hz, same cadence the game runs
+    }
+}</code></pre>
+
+      <p>The <code>GetAsyncKeyState(VK_DELETE) & 1</code> idiom returns
+      true only on the rising edge — same key being held doesn't
+      keep toggling. <code>VK_DELETE</code> is 0x2E. For INSERT use
+      0x2D, F11 is 0x7A.</p>
+
+      <h2>5. AssaultCube offsets (1.2 / r2935)</h2>
+      <p>These have been stable for years across AC 1.2 builds.
+      Verify via Cheat Engine on your install before relying:</p>
+
+      <table style="width:100%; border-collapse:collapse; margin: 0.5rem 0; font-family: ui-monospace, Menlo, monospace; font-size: 0.85em;">
+        <tr><th style="text-align:left; padding:0.3em 0;">Field</th><th style="text-align:left; padding:0.3em 0;">Address / Offset</th></tr>
+        <tr><td>Local player struct pointer</td><td><code>ac_client.exe + 0x0010F4F4</code></td></tr>
+        <tr><td>Local player HP</td><td><code>[player] + 0xEC</code></td></tr>
+        <tr><td>Local player armor</td><td><code>[player] + 0xF0</code></td></tr>
+        <tr><td>Local player position (Vec3 floats)</td><td><code>[player] + 0x4</code></td></tr>
+        <tr><td>Local player ammo (current weapon)</td><td><code>[player] + 0x140</code></td></tr>
+        <tr><td>Team (0 = CLA, 1 = RVSF)</td><td><code>[player] + 0x32C</code></td></tr>
+        <tr><td>Entity list pointer (all players)</td><td><code>ac_client.exe + 0x0018AC04</code></td></tr>
+        <tr><td>Entity count</td><td><code>ac_client.exe + 0x0018AC0C</code></td></tr>
+        <tr><td>View matrix (for ESP)</td><td><code>ac_client.exe + 0x0017DFD0</code></td></tr>
+      </table>
+
+      <p>That's the same shape as M16 STRUCT DISCOVERY in the simulator:
+      one base pointer, every stat at a known offset.</p>
+
+      <h2>6. Reading + writing memory (internal DLL — fast path)</h2>
+      <p>Because the DLL lives inside <code>ac_client.exe</code>, no
+      <code>WriteProcessMemory</code> needed — direct pointer
+      dereferences:</p>
+
+      <pre><code>uintptr_t base = (uintptr_t)GetModuleHandleA("ac_client.exe");
+uintptr_t player = *(uintptr_t*)(base + 0x10F4F4);
+
+if (player) {
+    int* hp   = (int*)(player + 0xEC);
+    int* ammo = (int*)(player + 0x140);
+
+    *hp = 100;       // M2 freeze, native-speed
+    *ammo = 99;      // M10 infinite ammo
+}</code></pre>
+
+      <p>That's the C++ equivalent of the M21 simulator template's
+      <code>write_label("player.hp", 100)</code>. No syscall, no IPC
+      roundtrip — direct memory access at game speed.</p>
+
+      <h2>7. Code patching with VirtualProtect (M22 in C++)</h2>
+      <p>NOPing an instruction in a real game means writing
+      <code>0x90</code> bytes to the .text section, which is
+      page-protected as read-only-execute. You unlock it with
+      <code>VirtualProtect</code>, write the patch, restore.</p>
+
+      <pre><code>// Patch the bleed/damage instruction. Address comes from CE's
+// 'Find what writes to this address' workflow.
+void nop_bytes(void* addr, size_t count) {
+    DWORD old_protect;
+    VirtualProtect(addr, count, PAGE_EXECUTE_READWRITE, &old_protect);
+    memset(addr, 0x90, count);
+    VirtualProtect(addr, count, old_protect, &old_protect);
+}
+
+// Usage — say CE shows the damage instruction at ac_client.exe + 0x4F8A2:
+uintptr_t base = (uintptr_t)GetModuleHandleA("ac_client.exe");
+nop_bytes((void*)(base + 0x4F8A2), 3);   // sub [reg], imm = 3 bytes</code></pre>
+
+      <p>Restore: save the original 3 bytes before NOPing, write them
+      back when you want the damage to work again.</p>
+
+      <h2>8. World-to-screen for ESP (D3DXVec3Project)</h2>
+      <p>This is the math that makes ESP boxes line up with players.
+      Take a 3D world position, project it through the game's view +
+      projection matrices, get a 2D screen pixel. Once you have the
+      screen pixel, you can draw a box / text / line to it.</p>
+
+      <pre><code>#include &lt;d3dx9.h&gt;
+
+bool world_to_screen(D3DXVECTOR3 world, D3DXVECTOR3& screen,
+                     D3DXMATRIX view_proj, int width, int height) {
+    D3DXVec3Project(&screen, &world,
+                    nullptr,           // viewport (use defaults below)
+                    nullptr,
+                    nullptr,
+                    &view_proj,
+                    width, height);
+    // Behind the camera? screen.z > 1.0 means behind, skip.
+    return screen.z &lt; 1.0f;
+}</code></pre>
+
+      <p>You get the view-projection matrix by reading
+      <code>ac_client.exe + 0x17DFD0</code> as a
+      <code>D3DXMATRIX</code> (16 floats / 64 bytes). Iterate the
+      entity list, project each enemy's position, draw at the
+      resulting screen coords.</p>
+
+      <h2>9. Hooking DirectX EndScene (where you draw the menu)</h2>
+      <p>EndScene is called by the game once per frame, right before
+      it presents the back buffer. Hooking it lets you draw your
+      stuff (menu, ESP, watermarks) <em>after</em> the game has
+      drawn its frame but <em>before</em> the player sees it.</p>
+
+      <p>Using MinHook:</p>
+      <pre><code>#include &lt;d3d9.h&gt;
+#include "MinHook.h"
+
+typedef HRESULT(__stdcall* EndScene_t)(IDirect3DDevice9*);
+EndScene_t oEndScene = nullptr;
+
+HRESULT __stdcall hkEndScene(IDirect3DDevice9* device) {
+    static bool init = false;
+    if (!init) {
+        // First call — set up our font, ImGui, whatever needs the device.
+        D3DXCreateFontA(device, 14, 0, FW_NORMAL, 1, FALSE,
+                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+                        "Arial", &g_font);
+        init = true;
+    }
+
+    // Draw your overlay here.
+    if (menu_visible) draw_menu(device);
+    draw_esp(device);
+
+    return oEndScene(device);   // call the original so the game frame still presents
+}
+
+void install_hook() {
+    // Get the EndScene address from a dummy D3D9 device, then redirect.
+    void* endscene_addr = get_endscene_via_dummy_device();
+    MH_Initialize();
+    MH_CreateHook(endscene_addr, &hkEndScene, (void**)&oEndScene);
+    MH_EnableHook(endscene_addr);
+}</code></pre>
+
+      <p>The "dummy D3D9 device" pattern is a 30-line helper that
+      creates an invisible D3D9 device just to read the EndScene
+      function pointer out of its vtable, then immediately destroys
+      it. Search "directx9 endscene hook vftable" for the standard
+      implementation.</p>
+
+      <h2>10. Drawing the menu (ImGui or hand-rolled)</h2>
+      <p>If you use ImGui (recommended):</p>
+      <pre><code>#include "imgui.h"
+#include "backends/imgui_impl_dx9.h"
+#include "backends/imgui_impl_win32.h"
+
+// In hkEndScene, after the init block:
+ImGui_ImplDX9_NewFrame();
+ImGui_ImplWin32_NewFrame();
+ImGui::NewFrame();
+
+if (menu_visible) {
+    ImGui::Begin("Cheat");
+    ImGui::Checkbox("Infinite HP", &cheats.god_mode);
+    ImGui::Checkbox("Infinite Ammo", &cheats.infinite_ammo);
+    ImGui::Checkbox("ESP", &cheats.esp);
+    ImGui::SliderInt("Damage", &cheats.weapon_damage, 1, 999);
+    ImGui::End();
+}
+
+ImGui::EndFrame();
+ImGui::Render();
+ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());</code></pre>
+
+      <p>That's the M23 simulator pattern in C++. Each
+      <code>Checkbox</code> bound to a global, the always-on loop in
+      <code>cheat_main</code> reads those globals and applies the
+      corresponding writes.</p>
+
+      <h2>11. The injector (separate EXE)</h2>
+      <p>You ship two files: <code>cheat.dll</code> (the payload above)
+      and a small <code>loader.exe</code> that injects it. Simplest
+      injector — CreateRemoteThread + LoadLibraryA:</p>
+
+      <pre><code>// loader.cpp
+#include &lt;windows.h&gt;
+#include &lt;tlhelp32.h&gt;
+#include &lt;cstdio&gt;
+
+DWORD find_pid(const char* name) {
+    PROCESSENTRY32 pe = { sizeof(pe) };
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    for (BOOL ok = Process32First(snap, &pe); ok; ok = Process32Next(snap, &pe)) {
+        if (_stricmp(pe.szExeFile, name) == 0) {
+            CloseHandle(snap); return pe.th32ProcessID;
+        }
+    }
+    CloseHandle(snap); return 0;
+}
+
+int main(int argc, char** argv) {
+    DWORD pid = find_pid("ac_client.exe");
+    if (!pid) { puts("AC not running"); return 1; }
+
+    char dll_path[MAX_PATH];
+    GetFullPathNameA("cheat.dll", MAX_PATH, dll_path, nullptr);
+
+    HANDLE proc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    LPVOID arg = VirtualAllocEx(proc, nullptr, strlen(dll_path) + 1,
+                                MEM_COMMIT, PAGE_READWRITE);
+    WriteProcessMemory(proc, arg, dll_path, strlen(dll_path) + 1, nullptr);
+
+    LPTHREAD_START_ROUTINE load = (LPTHREAD_START_ROUTINE)
+        GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA");
+
+    HANDLE thread = CreateRemoteThread(proc, nullptr, 0,
+                                       load, arg, 0, nullptr);
+    WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread); CloseHandle(proc);
+    puts("injected");
+    return 0;
+}</code></pre>
+
+      <p>Build with <code>cl loader.cpp /link kernel32.lib</code>.
+      Run AC, then run <code>loader.exe</code>. DllMain fires inside
+      ac_client.exe, _beginthread spawns the cheat thread, you're in.</p>
+
+      <h2>12. Auto-injection (the M22+ direction)</h2>
+      <p>For convenience, replace a DLL the game loads on startup
+      (DLL hijacking). AC loads <code>SDL.dll</code>. Rename your
+      cheat to <code>SDL.dll</code>, rename the original to
+      <code>SDL_orig.dll</code>, have your DllMain forward all
+      exports to <code>SDL_orig.dll</code> after spawning the cheat
+      thread. Now starting AC auto-loads your DLL.</p>
+
+      <p>Look up "DLL proxy generator" tools — they auto-generate the
+      forwarding stubs from the original DLL's exports.</p>
+
+      <h2>13. The full simulator-to-C++ map</h2>
+      <table style="width:100%; border-collapse:collapse; margin: 0.5rem 0; font-size: 0.9em;">
+        <tr><th style="text-align:left; padding:0.3em 0;">Sim mission</th><th style="text-align:left; padding:0.3em 0;">Real C++ technique</th></tr>
+        <tr><td>M01-M05 cell freeze</td><td><code>*(int*)addr = value;</code> in cheat thread loop</td></tr>
+        <tr><td>M06 watchdog</td><td>Anti-cheat CRC check on .text — bypass via NOPing the check</td></tr>
+        <tr><td>M07 aimbot crosshair</td><td>Iterate entity list, find closest enemy, write enemy.id to crosshair cell</td></tr>
+        <tr><td>M08 pointer scan</td><td>Hardcoded multi-level chains: <code>*(int*)(*(int*)(base + offset1) + offset2)</code></td></tr>
+        <tr><td>M09 manual address</td><td>Iterate entity list with <code>base + i * sizeof(Player)</code></td></tr>
+        <tr><td>M11/M14 weapon stats</td><td>Hardcoded <code>weapon_struct + offset</code> writes</td></tr>
+        <tr><td>M13 wallhack flag</td><td>Render-config bool flip OR (better) D3D9 EndScene hook</td></tr>
+        <tr><td>M16 struct discovery</td><td>Reverse the player struct in CE, write a C struct that mirrors it</td></tr>
+        <tr><td>M17 multi-level chains</td><td>Same as M08 above, with extra dereference levels</td></tr>
+        <tr><td>M18-M20 server-side</td><td>Find the local cache cell, freeze. Or hook the recv() call to drop death packets.</td></tr>
+        <tr><td>M21 internal cheat</td><td>The whole DLL — DllMain + _beginthread + cheat_main loop</td></tr>
+        <tr><td>M22 NOP code</td><td><code>VirtualProtect</code> + <code>memset(addr, 0x90, n)</code></td></tr>
+        <tr><td>M23 cheat menu</td><td>ImGui Checkbox bound to global, cheat_main reads global each tick</td></tr>
+      </table>
+
+      <h2>14. Where to go from here</h2>
+      <ul>
+        <li><strong>UnknownCheats AssaultCube section</strong> — decade
+            of public source releases for AC. Read the source, see
+            how each technique was implemented.</li>
+        <li><strong>GuidedHacking starter project</strong> — fully-
+            working AC trainer with menu, ESP, aimbot. Compile it,
+            run it, then re-read its source after this article.</li>
+        <li><strong>cherrytree's Game Hacking Bible</strong> + the AC
+            chapters specifically.</li>
+        <li>The book <em>Game Hacking</em> by Nick Cano (No Starch).
+            Whole chapters dedicated to the techniques M01-M22 cover.</li>
+      </ul>
+
+      <p><strong>Final note on ethics</strong>: AssaultCube is open
+      source and well-suited for solo / local-network practice.
+      Don't run anything you build against online competitive servers
+      (their players didn't consent to being targets). The whole
+      point of an open-source target is that you can practice freely
+      without harming anyone.</p>
+    `,
+  },
+  {
     id: "code-patching",
     title: "Code Patching — When Freezing the Cell Isn't Enough",
     brief: "Right-click → Find what writes → Replace with code that does nothing. The big leap from data hacks to code hacks.",
