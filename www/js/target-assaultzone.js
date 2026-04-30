@@ -50,8 +50,12 @@ class Player {
     this.y = SPAWN.y;
     this.hp = 100;
     this.ammo = 30;
+    this.alive = 1;             // M19 — gates death state; freeze=1 to skip dying
+    this.respawnTimerMs = 0;    // counts down from RESPAWN_DELAY when dead
   }
 }
+
+const RESPAWN_DELAY_MS = 3000;
 
 export class AssaultZone {
   constructor(canvas, { audio } = {}) {
@@ -221,6 +225,22 @@ export class AssaultZone {
       () => {},   // read-only from gameplay
       "ptr");
 
+    // M19 RESPAWN LOOP — alive flag and respawn timer at next offsets.
+    // The 'alive' cell is what the death-state check reads each frame.
+    // Freezing it at 1 means even when server.canonicalHp hits 0 and
+    // the kill code sets alive=0, memory.tick re-applies 1 the next
+    // frame — death state never lasts long enough to matter.
+    this.addrPlayerAlive = memory.bindGameValueAt(
+      SimMemory.formatAddr(this.playerStructBase + 0x18),
+      "player.alive",
+      () => this.player.alive,
+      v => { this.player.alive = (v | 0) ? 1 : 0; });
+    this.addrPlayerRespawnTimer = memory.bindGameValueAt(
+      SimMemory.formatAddr(this.playerStructBase + 0x1C),
+      "player.respawnTimerMs",
+      () => this.player.respawnTimerMs,
+      v => { this.player.respawnTimerMs = v | 0; });
+
     this.paused = false;
     this._pausedAt = 0;
 
@@ -251,6 +271,8 @@ export class AssaultZone {
     this.player.y = SPAWN.y;
     this.player.hp = 100;
     this.player.ammo = 30;
+    this.player.alive = 1;
+    this.player.respawnTimerMs = 0;
     this.paused = false;
     this.hazardsActive = false;
     this.bleedActive = false;
@@ -296,7 +318,8 @@ export class AssaultZone {
     for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo,
                      this.addrMoveCooldown, this.addrWeaponDamage,
                      this.addrWeaponCooldown, this.addrWeaponRecoil,
-                     this.addrEspVisible, this.addrServerHp]) {
+                     this.addrEspVisible, this.addrServerHp,
+                     this.addrPlayerAlive, this.addrPlayerRespawnTimer]) {
       memory.setFrozen(a, false);
     }
     // Also clear freezes on the enemy struct array.
@@ -394,6 +417,7 @@ export class AssaultZone {
 
   fire(now = performance.now()) {
     if (!this.weapon.enabled) return false;
+    if (this.player.alive !== 1) return false;   // can't fire while dead
     if (now - this.weapon.lastFireAt < this.weapon.cooldownMs) return false;
     // Out of ammo — silent click. The lesson of M10 INFINITE AMMO is
     // that freezing the ammo cell makes this branch unreachable.
@@ -507,7 +531,10 @@ export class AssaultZone {
       this._renderHud();
       return;
     }
-    if (now - this.lastMoveAt > this.moveCooldownMs) {
+    // Movement only when alive. If alive=0 (death state) the player
+    // is locked until respawn timer completes — unless they froze
+    // alive=1, in which case they're never in this branch.
+    if (this.player.alive === 1 && now - this.lastMoveAt > this.moveCooldownMs) {
       let dx = 0, dy = 0;
       if (this.input.up) dy -= 1;
       else if (this.input.down) dy += 1;
@@ -623,8 +650,9 @@ export class AssaultZone {
 
     // M18 SERVER TICK — periodically reconciles the server's HP with
     // accumulated damage. If server.canonicalHp hits 0 the server
-    // 'kills' you (respawn + deaths++), regardless of how the local
-    // player.hp is frozen. To survive, freeze server.canonicalHp.
+    // tries to flip player.alive to 0 (the 'death state'). The
+    // M19 trick: freeze player.alive at 1 so the death flag never
+    // sticks long enough for the respawn timer to fire.
     if (this.server.enabled && now - this.server.lastTickAt > this.server.tickIntervalMs) {
       this.server.lastTickAt = now;
       if (this.server.pendingDamage > 0) {
@@ -635,17 +663,36 @@ export class AssaultZone {
         // Always drain the queue — the damage event was 'sent.'
         this.server.pendingDamage = 0;
       }
-      if (this.server.canonicalHp <= 0) {
-        // Server says you're dead. Respawn happens client-side; you
-        // can't refuse the order even with player.hp frozen at 100.
+      if (this.server.canonicalHp <= 0 && this.player.alive === 1) {
+        // Server says you're dead. Set alive=0 (frozen alive=1 will
+        // re-flip it on next memory.tick — that's the M19 exploit).
+        this.player.alive = 0;
+        this.player.respawnTimerMs = RESPAWN_DELAY_MS;
+        if (this.audio) this.audio.fail && this.audio.fail();
+      }
+    }
+
+    // Respawn timer — counts down each frame while dead. Once it
+    // hits 0, full respawn (deaths++, HP/server reset). If the
+    // player has frozen alive=1, alive flips back from 0 to 1 on
+    // the next memory.tick(), this branch never enters, the timer
+    // never reaches 0, the death never lands.
+    if (this.player.alive === 0) {
+      const lastT = this._lastRespawnTickAt || now;
+      const dt = Math.max(0, now - lastT);
+      this._lastRespawnTickAt = now;
+      this.player.respawnTimerMs = Math.max(0, this.player.respawnTimerMs - dt);
+      if (this.player.respawnTimerMs <= 0) {
         this.deaths++;
+        this.player.alive = 1;
         this.player.hp = 100;
         this.player.x = SPAWN.x;
         this.player.y = SPAWN.y;
         this.server.canonicalHp = 100;
         this._flashHit();
-        if (this.audio) this.audio.fail && this.audio.fail();
       }
+    } else {
+      this._lastRespawnTickAt = now;
     }
 
     // Sync game <-> memory (also applies any frozen writes).
@@ -659,6 +706,8 @@ export class AssaultZone {
     document.getElementById("hud-y").textContent  = this.player.y;
     const $hp = document.getElementById("hud-hp");
     $hp.textContent = this.player.hp;
+    const $dead = document.getElementById("dead-overlay");
+    if ($dead) $dead.hidden = (this.player.alive === 1);
     const lockedNow = memory.isFrozen(this.addrHP);
     const $lock = document.getElementById("hud-lock");
     if ($lock) $lock.hidden = !lockedNow;

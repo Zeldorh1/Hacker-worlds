@@ -6,6 +6,121 @@
 
 const ARTICLES = [
   {
+    id: "death-state-desync",
+    title: "Death-State Desync — Faking Liveness Faster Than the Server",
+    brief: "When the server says you're dead but the client never quite agrees.",
+    body: `
+      <h2>The next layer past server authority</h2>
+      <p>M18 taught the brute version: find the server's HP cell, freeze it.
+      That works when the server-state cache is read-write from gameplay code.
+      When it isn't (or when you can't find the cache cell), there's another
+      angle:</p>
+
+      <p><strong>The death state itself is usually client-side.</strong></p>
+
+      <p>The server can tell you 'your HP is 0,' but turning that into 'you
+      are dead' (lock inputs, play death animation, start respawn timer)
+      happens on YOUR machine. There's a flag — call it
+      <code>player.is_dead</code>, <code>player.alive</code>,
+      <code>state.player.deathTimer</code>, whatever — that the client
+      reads each frame to decide 'should I render the death screen and
+      ignore inputs?' That flag lives in your memory.</p>
+
+      <p>If you freeze it at 'alive,' the death state can be flipped on by
+      the server-tick handler 60 times per second and it doesn't matter:
+      your freeze re-applies on the next memory.tick (which runs faster
+      than the server tick). The kill code runs, sets the flag, your code
+      flips it back, the death animation never plays, the respawn timer
+      never reaches zero.</p>
+
+      <h2>Why this works</h2>
+      <p>Three timing facts have to line up:</p>
+
+      <ol>
+        <li><strong>Memory.tick (your freeze) runs at frame rate</strong> —
+            usually 60Hz or higher. Every frame your freeze re-writes the
+            cell.</li>
+        <li><strong>Server-state-apply runs at network tick rate</strong> —
+            usually 30Hz, sometimes as low as 10Hz for non-critical state.</li>
+        <li><strong>Game logic reads the death flag every frame</strong> —
+            but only takes action (lock input, play animation) on the
+            transition from alive to dead.</li>
+      </ol>
+
+      <p>If your freeze is faster than the server tick (it is — 60 &gt;
+      30), and the game logic checks state-not-edge, then the brief
+      window where the flag is 'dead' between server-tick and your
+      memory.tick is too short for any visible effect. The death never
+      lands.</p>
+
+      <h2>The variations on the trick</h2>
+      <ul>
+        <li><strong>Freeze player.alive at 1.</strong> Most direct. M19
+            simulates this exact case.</li>
+        <li><strong>Freeze player.is_dead at 0.</strong> Same idea, opposite
+            polarity. Some engines name the flag the other way.</li>
+        <li><strong>Freeze player.respawnTimerMs at 0.</strong> Even if
+            you're 'dead,' if the timer is at 0 the engine instantly
+            respawns you back to alive. End result: you flicker between
+            states 60 times/sec but functionally never die.</li>
+        <li><strong>Freeze the kill function's branch register.</strong>
+            Advanced — find the conditional jump in the kill code, NOP
+            it out so the code never enters the death branch in the
+            first place.</li>
+        <li><strong>Intercept the death packet on the wire.</strong>
+            Network-level — the server's 'you died' message has a known
+            packet ID. Drop or rewrite it. Server eventually sends another
+            after the kick threshold; chain them across all death packets.</li>
+      </ul>
+
+      <h2>Why games are vulnerable to this</h2>
+      <p>Architecturally, dev teams keep the death-state machine client-side
+      because it's tied tightly to rendering: animations, sound effects,
+      camera transitions, UI. Pushing all of that to the server would mean
+      the server knows about your camera FOV, your audio settings, your
+      monitor refresh rate. Bad architecture.</p>
+
+      <p>So the server says 'they're at 0 HP' and trusts the client to
+      handle the consequences. Most players' clients do, and the dev's
+      mental model holds. Cheaters' clients don't.</p>
+
+      <p>The fix dev teams reach for is server-side <em>kick</em> when
+      the client refuses to acknowledge the death — but kick logic is
+      itself a state machine that can be defeated. Or they CRC-check
+      the death-state code, but that's the M6 watchdog fight which
+      you've already won.</p>
+
+      <h2>How to recognise this opportunity in a real game</h2>
+      <ul>
+        <li>You die normally. HUD shows the death screen, respawn timer
+            counts down, you respawn.</li>
+        <li>Find the cells holding the respawn timer (it counts up or
+            down — easy to scan-and-narrow).</li>
+        <li>Adjacent to the timer there's almost always a 0/1 flag —
+            that's <code>is_dead</code> / <code>alive</code>.</li>
+        <li>Take damage to die. Watch which cell flipped from 1→0 (or
+            0→1).</li>
+        <li>Freeze it on the 'alive' side. Take damage. Death screen
+            should never appear.</li>
+      </ul>
+
+      <h2>How M19 simulates this</h2>
+      <p>The simulator now has <code>player.alive</code> bound at
+      <code>player_base + 0x18</code> and <code>player.respawnTimerMs</code>
+      at <code>+0x1C</code>. When the server's HP hits 0, the kill code
+      sets alive=0 and respawnTimerMs=3000. The update loop counts the
+      timer down each frame; when it hits 0, full respawn (deaths++,
+      HP/server reset, position back to spawn).</p>
+
+      <p>Freeze player.alive at 1 → kill code's <code>alive=0</code> write
+      gets overwritten by your freeze on the next memory.tick →
+      respawnTimerMs decrement branch never enters → no respawn → no
+      death.</p>
+
+      <p>Same trick, simulated. The technique transfers directly.</p>
+    `,
+  },
+  {
     id: "server-authority",
     title: "When Memory Freezes Aren't Enough — Server-Side State",
     brief: "Why your local HP freeze does nothing in multiplayer, and what actually works.",
