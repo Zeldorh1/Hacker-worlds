@@ -6,6 +6,94 @@
 
 const ARTICLES = [
   {
+    id: "stat-cells",
+    title: "Stats, Resources, and the Boring Truth of Game Hacks",
+    brief: "Ammo, damage, speed, gold, mana — the same int-in-a-struct trick, dressed up.",
+    body: `
+      <h2>The unifying lesson</h2>
+      <p>You've now done <strong>M10 INFINITE AMMO</strong>, <strong>M11 SUPER BULLETS</strong>,
+      and <strong>M12 SPEED HACK</strong>. They all looked different — different counters
+      on the HUD, different feedback, different mission text — but the workflow was
+      identical:</p>
+
+      <ol>
+        <li>Note the current value on the HUD.</li>
+        <li>First Scan that value.</li>
+        <li>Cause the value to change OR stay still, and Next Scan with the right filter.</li>
+        <li>Watch the survivor. Edit. Freeze.</li>
+      </ol>
+
+      <p>That's because under the hood they <em>are</em> identical: a four-byte int
+      in the player or weapon struct. Naming it "ammo" or "damage" or
+      "moveCooldownMs" is a developer convenience; the CPU sees a 32-bit slot.</p>
+
+      <h2>Why scan-narrow-freeze keeps working</h2>
+      <p>Every commercial game has a "player struct" or "entity struct" laid out
+      in memory like:</p>
+      <pre><code>struct Player {
+  int   health;     // +0x00
+  int   shield;     // +0x04
+  int   ammo;       // +0x08
+  int   maxAmmo;    // +0x0C
+  float moveSpeed;  // +0x10
+  float jumpHeight; // +0x14
+  ...
+};</code></pre>
+
+      <p>Your hack reaches into this struct and rewrites a single field. The
+      game's logic — <code>if (ammo &gt; 0) { ammo--; spawn_bullet(); }</code> —
+      reads your modified value on the next frame. The dev never wrote a check
+      that says "did the user just edit ammo from outside?" because that check
+      doesn't fit anywhere in the inner loop.</p>
+
+      <h2>Mapping in-app to Cheat Engine</h2>
+      <table style="width:100%; border-collapse:collapse; margin: 0.5rem 0;">
+        <tr><th style="text-align:left; padding:0.3em 0;">In Hacker Worlds</th><th style="text-align:left; padding:0.3em 0;">Real Cheat Engine</th></tr>
+        <tr><td style="padding:0.2em 0;"><code>SCANNER → First Scan</code></td><td style="padding:0.2em 0;">CE main window → First Scan</td></tr>
+        <tr><td style="padding:0.2em 0;">filter <em>unchanged</em></td><td style="padding:0.2em 0;">Scan Type → "Unchanged value" + Next Scan</td></tr>
+        <tr><td style="padding:0.2em 0;"><code>+ watch</code></td><td style="padding:0.2em 0;">Double-click to "Add to address list"</td></tr>
+        <tr><td style="padding:0.2em 0;">value-edit input</td><td style="padding:0.2em 0;">Click the value column, type new</td></tr>
+        <tr><td style="padding:0.2em 0;"><code>freeze</code> checkbox</td><td style="padding:0.2em 0;">"Active" checkbox in the address list</td></tr>
+      </table>
+
+      <h2>Where the difficulty actually lives</h2>
+      <p>In a real game, ammo isn't always stored as the displayed number. You'll
+      hit:</p>
+      <ul>
+        <li><strong>Multiplied/encoded values</strong> — ammo of 30 stored as
+            <code>30 * 4</code>, or XOR'd with a per-session key. Scan for the
+            displayed value, get nothing. Solution: scan unknown initial value,
+            fire a shot, scan "decreased" — works regardless of encoding.</li>
+        <li><strong>Floats instead of ints</strong> — speed and damage often live
+            as floats. CE has a "Float" scan type; the technique is identical.
+            In this app we keep everything int for simplicity.</li>
+        <li><strong>Server-authoritative state</strong> — multiplayer games keep
+            ammo on the server. You can edit your local copy all day; the server
+            says "no, you have 30." Different bypass, covered in the network
+            track later (M27+).</li>
+        <li><strong>Anti-cheat watchdogs</strong> — some games CRC-check the
+            player struct every frame and crash if it changes. M06 already
+            taught you the shape of that fight.</li>
+      </ul>
+
+      <h2>Why this matters outside games</h2>
+      <p>The pattern <em>"find a value, narrow with filters, write to it"</em>
+      is the same one a reverse engineer uses on:</p>
+      <ul>
+        <li><strong>License checks</strong> — find the boolean that gates "is_paid",
+            flip it. (Don't actually do this with real software — but understanding
+            the mechanism is what lets you defend against it.)</li>
+        <li><strong>Embedded firmware</strong> — finding a calibration constant
+            in a stripped binary uses identical scan-and-narrow logic.</li>
+        <li><strong>Memory forensics</strong> — DFIR analysts pull live memory
+            and search for known values (process names, encryption keys) using
+            tools that are essentially Cheat Engine for forensic images.</li>
+      </ul>
+
+      <p>The workflow you just internalised is reusable. The targets change.</p>
+    `,
+  },
+  {
     id: "pointer-chains",
     title: "Pointer Chains in Real Games",
     brief: "Why your address dies on restart — and how to lock onto a target that survives.",

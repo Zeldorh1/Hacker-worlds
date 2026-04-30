@@ -65,6 +65,7 @@ export class AssaultZone {
     this.input = { up: false, down: false, left: false, right: false };
     this.lastMoveAt = 0;
     this.moveCooldownMs = 110;
+    this.tilesMoved = 0;
     this.lastHazardTickAt = 0;
     this.lastDamageAt = 0;
     this.damageEvents = 0;
@@ -81,6 +82,12 @@ export class AssaultZone {
     this.addrY    = memory.bindGameValue("player.y",    () => this.player.y,    v => { this.player.y = v; });
     this.addrHP   = memory.bindGameValue("player.hp",   () => this.player.hp,   v => { this.player.hp = v; });
     this.addrAmmo = memory.bindGameValue("player.ammo", () => this.player.ammo, v => { this.player.ammo = v; });
+    // M12 SPEED HACK — the movement cooldown is just another int. Find
+    // it, freeze it low, and the player walks faster than the engine
+    // expects. Real game equivalent: speed multiplier in player struct.
+    this.addrMoveCooldown = memory.bindGameValue("player.moveCooldownMs",
+      () => this.moveCooldownMs,
+      v => { this.moveCooldownMs = v; });
 
     // Enemy entity array — patrol NPCs that future missions teach you to
     // find via the entity-array layout in memory.
@@ -124,12 +131,22 @@ export class AssaultZone {
       enabled: false,
       lastFireAt: 0,
       cooldownMs: 320,
+      damage: 25,
     };
     this.crosshairTargetId = 0;
     this.aimbotKills = 0;
+    this.killCount = 0;
+    this.shotsFired = 0;
+    this.shotsAtFullAmmoLock = 0;   // tracked from the moment ammo gets frozen
     this.addrCrosshair = memory.bindGameValue("crosshair.target",
       () => this.crosshairTargetId,
       v => { this.crosshairTargetId = v; });
+    // M11 SUPER BULLETS — the weapon damage is a plain int the player
+    // can scan for and edit upward. Real game equivalent: weapon stats
+    // table cell.
+    this.addrWeaponDamage = memory.bindGameValue("weapon.damage",
+      () => this.weapon.damage,
+      v => { this.weapon.damage = v; });
 
     this.paused = false;
     this._pausedAt = 0;
@@ -172,9 +189,16 @@ export class AssaultZone {
     this.watchdog.violations = 0;
     this.weapon.enabled = false;
     this.weapon.lastFireAt = 0;
+    this.weapon.damage = 25;
     this.crosshairTargetId = 0;
     this.aimbotKills = 0;
+    this.killCount = 0;
+    this.shotsFired = 0;
+    this.shotsAtFullAmmoLock = 0;
+    this.tilesMoved = 0;
+    this.moveCooldownMs = 110;
     document.getElementById("hud-weapon")?.setAttribute("hidden", "");
+    document.getElementById("hud-ammo")?.setAttribute("hidden", "");
     document.getElementById("btn-fire")?.setAttribute("hidden", "");
     // Note: radarActive / espActive intentionally persist across missions
     // — once a player has earned the unlock, the HUD stays available.
@@ -184,7 +208,8 @@ export class AssaultZone {
     this.lastBleedAt = 0;
     this.enemyManager.reset();
     // Unfreeze any cells from a previous run.
-    for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo]) {
+    for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo,
+                     this.addrMoveCooldown, this.addrWeaponDamage]) {
       memory.setFrozen(a, false);
     }
     // Also clear freezes on the enemy struct array.
@@ -234,25 +259,34 @@ export class AssaultZone {
     this.weapon.enabled = true;
     this.aimbotKills = 0;
     document.getElementById("hud-weapon")?.removeAttribute("hidden");
+    document.getElementById("hud-ammo")?.removeAttribute("hidden");
     document.getElementById("btn-fire")?.removeAttribute("hidden");
   }
   disableWeapon() {
     this.weapon.enabled = false;
     document.getElementById("hud-weapon")?.setAttribute("hidden", "");
+    document.getElementById("hud-ammo")?.setAttribute("hidden", "");
     document.getElementById("btn-fire")?.setAttribute("hidden", "");
   }
 
   fire(now = performance.now()) {
     if (!this.weapon.enabled) return false;
     if (now - this.weapon.lastFireAt < this.weapon.cooldownMs) return false;
+    // Out of ammo — silent click. The lesson of M10 INFINITE AMMO is
+    // that freezing the ammo cell makes this branch unreachable.
+    if (this.player.ammo <= 0) return false;
     this.weapon.lastFireAt = now;
+    this.player.ammo -= 1;
+    this.shotsFired++;
     const e = this.enemyManager.enemies.find(e => e.id === this.crosshairTargetId && e.alive);
     if (!e) return false;
     const aimbotting = memory.isFrozen(this.addrCrosshair);
-    e.hp = Math.max(0, e.hp - 25);
+    const dmg = Math.max(0, this.weapon.damage | 0);
+    e.hp = Math.max(0, e.hp - dmg);
     if (this.audio) this.audio.scan();   // a quick bleep for muzzle
     if (e.hp <= 0) {
       e.alive = 0;
+      this.killCount++;
       if (aimbotting) this.aimbotKills++;
     }
     return true;
@@ -321,6 +355,7 @@ export class AssaultZone {
     if (this.map[ny][nx] === 1) return;
     this.player.x = nx;
     this.player.y = ny;
+    this.tilesMoved++;
   }
 
   _onHazardTile() {
@@ -450,6 +485,16 @@ export class AssaultZone {
         const e = this.enemyManager.enemies.find(e => e.id === this.crosshairTargetId);
         const lock = memory.isFrozen(this.addrCrosshair) ? " ⛒" : "";
         $tgt.textContent = e ? `${e.name}#${e.id}${lock}` : `none${lock}`;
+      }
+      const $ammo = document.getElementById("hud-ammo-val");
+      if ($ammo) {
+        const ammoLock = memory.isFrozen(this.addrAmmo) ? " ⛒" : "";
+        $ammo.textContent = `${this.player.ammo}${ammoLock}`;
+      }
+      const $dmg = document.getElementById("hud-dmg-val");
+      if ($dmg) {
+        const dmgLock = memory.isFrozen(this.addrWeaponDamage) ? " ⛒" : "";
+        $dmg.textContent = `${this.weapon.damage}${dmgLock}`;
       }
     }
   }
