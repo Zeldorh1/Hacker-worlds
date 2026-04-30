@@ -6,6 +6,105 @@
 
 const ARTICLES = [
   {
+    id: "respawn-position",
+    title: "Respawn-Position Tampering — Stay Where You Died",
+    brief: "Let the death register on the kill feed. Just don't get sent back to spawn.",
+    body: `
+      <h2>The pain isn't dying</h2>
+      <p>In a real shooter, dying once isn't usually mission-critical. The
+      mission-critical part is what happens AFTER:</p>
+
+      <ul>
+        <li>You get teleported back to your team's spawn area.</li>
+        <li>Your map position resets — that hard-won angle on the choke
+            point, gone.</li>
+        <li>The 30-second walk back to the fight gives the enemy team
+            time to lock in their objective.</li>
+        <li>If your weapon was looted off a corpse, sometimes you respawn
+            with the default loadout instead.</li>
+      </ul>
+
+      <p>Compare that to: brief death animation, then you're standing
+      RIGHT back where you fell, holding the same angle, wearing the
+      same gear. The kill feed updated. Your KDR took a -1. But
+      mechanically, you didn't lose anything except a couple seconds.
+      That's the no-teleport exploit.</p>
+
+      <h2>Why this works</h2>
+      <p>Spawn placement is almost never server-validated. The server
+      tells the client 'you died, please respawn.' The client looks at
+      its own respawn-point cells (or its map's spawn-point list and
+      a 'which spawn am I assigned to' index) and runs the teleport
+      locally. Then it tells the server 'I respawned at X,Y.'</p>
+
+      <p>The server usually trusts that. Spawn validation costs CPU
+      (server has to know every map's spawn list, validate distance
+      from line of sight, etc.) and adds latency. Most engines skip
+      it — or only validate that the chosen spawn is in the team's
+      list, not that it's a sensible distance from the death location.</p>
+
+      <h2>How to find the respawn cells</h2>
+      <p>Easier than M18 / M19, because the values are constants you
+      can read off the map:</p>
+
+      <ol>
+        <li>Note the spawn coordinates (where you start, where you
+            respawn after death).</li>
+        <li>Scan for that X coord. Scan for that Y coord. Or both
+            at once if your CE supports compound scans.</li>
+        <li>Walk far away. Filter 'unchanged' — your player.x changes,
+            the respawn.x stays put.</li>
+        <li>Trial-and-error: edit candidates to your current position,
+            die, see who respawns where. The right cells make you
+            respawn in place.</li>
+      </ol>
+
+      <h3>Variants you'll see</h3>
+      <ul>
+        <li><strong>Spawn-list index.</strong> Some games store an int
+            'which spawn am I assigned to' (0..N) and look up coords
+            from a static list. Edit the int to point at a spawn near
+            your death location.</li>
+        <li><strong>Per-respawn callback.</strong> The respawn destination
+            is computed from a function call, not a stored cell. Defeated
+            by hooking the function or NOPing the position-write
+            instructions.</li>
+        <li><strong>'Random spawn' mode.</strong> Game picks a random
+            spawn each time. Find the RNG state, freeze it, every spawn
+            picks the same coordinates — pick the one closest to where
+            you fight.</li>
+      </ul>
+
+      <h2>Combining with M19</h2>
+      <p>The two tricks stack. Freeze player.alive at 1 (M19) and the
+      death never registers at all — best case. If the game has
+      countermeasures that prevent the alive-freeze (server-side
+      death detection, watchdog, or the alive cell is encrypted),
+      fall back to M20: let the death happen, just neutralize the
+      teleport.</p>
+
+      <p>The two also stack the other way: freeze respawn.x/y AND
+      freeze the kill-feed cell (server-side) and you've shipped
+      true online godmode — kill enemies indefinitely, the board
+      shows 0 deaths because the server never registers them, you
+      never get teleported away because you never die anyway.</p>
+
+      <h2>How M20 simulates this</h2>
+      <p>The simulator now binds <code>respawn.x</code> at
+      <code>player_base + 0x20</code> and <code>respawn.y</code> at
+      <code>+0x24</code>. The server-tick respawn code reads from
+      those cells (not from the SPAWN constant) when teleporting you.
+      Default values match SPAWN (5, 5).</p>
+
+      <p>Edit those cells to your current X / Y. Freeze. Die. The
+      respawn fires, reads the cells, teleports you to your own
+      coordinates — i.e., nowhere. You stay in place.</p>
+
+      <p>Win condition: 2 deaths with the respawn cells edited away
+      from default. Proves the trick is repeatable.</p>
+    `,
+  },
+  {
     id: "death-state-desync",
     title: "Death-State Desync — Faking Liveness Faster Than the Server",
     brief: "When the server says you're dead but the client never quite agrees.",

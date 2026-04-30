@@ -241,6 +241,24 @@ export class AssaultZone {
       () => this.player.respawnTimerMs,
       v => { this.player.respawnTimerMs = v | 0; });
 
+    // M20 NO-TELEPORT — respawn point. When you die, the engine reads
+    // these cells to decide where to teleport you. Default = SPAWN.
+    // The exploit: after you've moved deep into the map, edit these
+    // to your CURRENT position. Now respawn 'teleports' you to where
+    // you already are — i.e., nowhere. You stay in place, keep
+    // playing, kill feed shows the death but you didn't lose ground.
+    this.respawnPoint = { x: SPAWN.x, y: SPAWN.y };
+    this.addrRespawnX = memory.bindGameValueAt(
+      SimMemory.formatAddr(this.playerStructBase + 0x20),
+      "respawn.x",
+      () => this.respawnPoint.x,
+      v => { this.respawnPoint.x = v | 0; });
+    this.addrRespawnY = memory.bindGameValueAt(
+      SimMemory.formatAddr(this.playerStructBase + 0x24),
+      "respawn.y",
+      () => this.respawnPoint.y,
+      v => { this.respawnPoint.y = v | 0; });
+
     this.paused = false;
     this._pausedAt = 0;
 
@@ -313,13 +331,16 @@ export class AssaultZone {
     this.server.canonicalHp = 100;
     this.server.pendingDamage = 0;
     this.server.lastTickAt = 0;
+    this.respawnPoint.x = SPAWN.x;
+    this.respawnPoint.y = SPAWN.y;
     document.getElementById("hud-server")?.setAttribute("hidden", "");
     // Unfreeze any cells from a previous run.
     for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo,
                      this.addrMoveCooldown, this.addrWeaponDamage,
                      this.addrWeaponCooldown, this.addrWeaponRecoil,
                      this.addrEspVisible, this.addrServerHp,
-                     this.addrPlayerAlive, this.addrPlayerRespawnTimer]) {
+                     this.addrPlayerAlive, this.addrPlayerRespawnTimer,
+                     this.addrRespawnX, this.addrRespawnY]) {
       memory.setFrozen(a, false);
     }
     // Also clear freezes on the enemy struct array.
@@ -686,8 +707,11 @@ export class AssaultZone {
         this.deaths++;
         this.player.alive = 1;
         this.player.hp = 100;
-        this.player.x = SPAWN.x;
-        this.player.y = SPAWN.y;
+        // M20 — the engine reads respawnPoint cells to decide teleport
+        // destination. If the player edited those to their current
+        // position, they 'teleport' nowhere.
+        this.player.x = this.respawnPoint.x;
+        this.player.y = this.respawnPoint.y;
         this.server.canonicalHp = 100;
         this._flashHit();
       }
