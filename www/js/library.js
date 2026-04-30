@@ -6,6 +6,153 @@
 
 const ARTICLES = [
   {
+    id: "multiplayer-defenses-full-spectrum",
+    title: "Multiplayer Cheat Defenses — The Full Layered Stack",
+    brief: "Every defense modern multiplayer ships and the bypass for each. Maps the M18-M20 + M30-M40 missions to the real-world arms race.",
+    body: `
+      <h2>The defensive stack</h2>
+      <p>Modern multiplayer games don't ship one anti-cheat measure
+      — they ship a whole stack. Cracking one layer doesn't beat the
+      whole system. Here's the full set, each with its bypass and
+      which simulator mission covers it:</p>
+
+      <h3>Layer 1 — Server authority</h3>
+      <p><strong>What it is:</strong> server holds canonical state for
+      anything that affects gameplay (HP, ammo, score, position).
+      Client renders what the server tells it. Local memory edits
+      become cosmetic.</p>
+      <p><strong>Bypass(es):</strong></p>
+      <ul>
+        <li>Find the local cache of server state, freeze that (M18).</li>
+        <li>Freeze the death-state flag so the server's kill-event
+            never sticks long enough (M19).</li>
+        <li>Edit the respawn-position cells so respawn doesn't
+            teleport you to base (M20).</li>
+      </ul>
+
+      <h3>Layer 2 — Client-side validation of damage</h3>
+      <p><strong>What it is:</strong> server clamps incoming damage
+      packets to the maximum the player's weapon allows. Crafted
+      packets claiming amount=999 get shaved to weapon.damage * 2
+      (or whatever the server's tolerance is).</p>
+      <p><strong>Bypass:</strong> stack with a damage hike — boost
+      weapon.damage so the cap rises with it. Crafted 999 clamped
+      to (200 × 2) = 400, still one-shot territory (M34).</p>
+
+      <h3>Layer 3 — HMAC-signed packets</h3>
+      <p><strong>What it is:</strong> every outgoing packet signed
+      with a per-session key derived during handshake. Receivers
+      validate. Modified packets fail the signature check.</p>
+      <p><strong>Bypass:</strong> find the session key in memory
+      (it has to be there — your own client uses it to sign), mutate
+      the packet, re-compute the signature, attach. Now your craft
+      validates (M38).</p>
+
+      <h3>Layer 4 — Sequence numbers + replay windows</h3>
+      <p><strong>What it is:</strong> every packet auto-tagged with
+      a monotonic sequence number. Server tracks seen seqs and
+      rejects duplicates within a replay window.</p>
+      <p><strong>Bypass:</strong> when replaying a captured packet,
+      forge a new seq above any seen value. Server treats it as
+      fresh (M39).</p>
+
+      <h3>Layer 5 — Movement validation</h3>
+      <p><strong>What it is:</strong> server rejects position-update
+      packets where the position delta exceeds the maximum velocity
+      the player's character can produce. Speed hacks and teleport
+      hacks get snapped back to the last valid position.</p>
+      <p><strong>Bypass:</strong> stay UNDER the threshold. 'Legal
+      speed hack' — fast enough to feel cheating, slow enough the
+      validator tolerates (M37). Or use legitimate movement chains
+      (bunny-hop, strafe-jump) that produce above-baseline speed
+      without tripping per-tick velocity limits.</p>
+
+      <h3>Layer 6 — Lag compensation</h3>
+      <p><strong>What it is:</strong> server records a history of
+      every player's positions. When validating a hit, server
+      rewinds time to where the target was when the shot was fired
+      (compensating for the shooter's network latency).</p>
+      <p><strong>Bypass:</strong> 'lag switch' — artificially
+      inflate latency at strategic moments to gain larger rewind
+      windows. Or hook the shot's timestamp on send to claim the
+      shot was fired earlier than it actually was. Conceptual only
+      in the simulator — too physically tied to real network
+      conditions.</p>
+
+      <h3>Layer 7 — Behavioral analysis</h3>
+      <p><strong>What it is:</strong> server (or client-side AC)
+      watches input timing distributions. Aimbot snaps that beat
+      human reaction times → flag. Tracking through occlusion →
+      flag. Perfect hit-rate over hours → flag.</p>
+      <p><strong>Bypass:</strong> humanization — reaction delays
+      (180-260ms randomized), target jitter, smoothing curves,
+      miss-on-purpose, FOV-based activation (M33).</p>
+
+      <h3>Layer 8 — Signature scanning (kernel AC)</h3>
+      <p><strong>What it is:</strong> kernel-mode driver scans
+      loaded process memory for known cheat signatures (specific
+      byte patterns, suspicious strings, telltale symbol names).</p>
+      <p><strong>Bypass:</strong> string obfuscation, mangled
+      symbol names, polymorphism per build (M32). For active
+      commercial AC: also requires manual mapping, hardware
+      spoofing, or kernel-side hiding — out of scope here.</p>
+
+      <h3>Layer 9 — Spectator detection</h3>
+      <p><strong>What it is:</strong> when an admin or trusted
+      player joins your view to watch for cheats, the server
+      notifies your client via a packet event.</p>
+      <p><strong>Bypass:</strong> hook recv for the event, set a
+      'being watched' flag, conditionally disable visual cheats
+      (ESP, menus, anything DRAWN) for the duration. Memory-only
+      cheats (HP / ammo locks) stay on — they can't see those (M40).</p>
+
+      <h2>How the layers stack</h2>
+      <p>Defeating a single layer doesn't help if the others are
+      still in play. Real cheats have to bypass simultaneously:</p>
+      <pre><code>Crafted damage packet pipeline:
+  1. Sign for hmac-clean validation       (M38)
+  2. Stack with damage-cell hike           (M34)
+  3. Forge seq number to dodge replay      (M39)
+  4. Target position from lag-comp window  (lag switch)
+  5. Behavioral throttle on aimbot         (M33)
+  6. Hide visuals while spectator present  (M40)
+  7. Obfuscate strings against scan        (M32)</code></pre>
+
+      <p>That's why pro cheats are full-time engineering projects
+      and why amateur cheats die instantly on protected games.
+      AssaultCube, by contrast, ships none of these defenses —
+      one layer at a time is enough. The lessons you've learned
+      transfer to AC fully; against modern protected games they're
+      conceptual ammunition, not deployable bypasses.</p>
+
+      <h2>The full defensive stack as a defender</h2>
+      <p>If you ever build the AC SIDE (defensive game security):
+      ship every layer. Even imperfect implementations of each
+      raise the bar significantly. Don't over-rely on one — pro
+      cheaters will find that single layer and bypass it. The
+      compound work of stacking is what defends.</p>
+
+      <h2>Mission map for the full stack</h2>
+      <table style="width:100%; border-collapse:collapse; margin:0.5rem 0;">
+        <tr><th style="text-align:left;">Defense</th><th style="text-align:left;">Mission</th><th style="text-align:left;">Bypass</th></tr>
+        <tr><td>Server authority (HP)</td><td>M18</td><td>Find local cache cell</td></tr>
+        <tr><td>Death-state flag</td><td>M19</td><td>Freeze alive=1</td></tr>
+        <tr><td>Respawn teleport</td><td>M20</td><td>Edit respawn cells</td></tr>
+        <tr><td>Damage validation</td><td>M34</td><td>Boost weapon.damage</td></tr>
+        <tr><td>HMAC signatures</td><td>M38</td><td>Find key, re-sign</td></tr>
+        <tr><td>Sequence numbers</td><td>M39</td><td>Forge fresh seq</td></tr>
+        <tr><td>Movement validation</td><td>M37</td><td>Legal-speed cheat</td></tr>
+        <tr><td>Behavioral detection</td><td>M33</td><td>Humanization</td></tr>
+        <tr><td>Signature scanning</td><td>M32</td><td>Obfuscate strings</td></tr>
+        <tr><td>Spectator detection</td><td>M40</td><td>Auto-hide visuals</td></tr>
+      </table>
+
+      <p>Combined with M30-M31 (packet inspection + craft) and M35
+      (replay), this is the full multiplayer-cheat / multiplayer-
+      defense surface area in 13 missions.</p>
+    `,
+  },
+  {
     id: "custom-menus-canvas-to-imgui",
     title: "Custom Menus — From Canvas to ImGui",
     brief: "What every menu actually is: state + drawing + hit-testing + toggle. Plus how the simulator's raw-canvas approach maps to real ImGui in C++.",

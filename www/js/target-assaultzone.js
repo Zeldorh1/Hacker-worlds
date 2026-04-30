@@ -106,6 +106,42 @@ export class AssaultZone {
     this.network = {
       enabled: false,
       log: [],
+      // M37 — server checks position-update packets against a max
+      // velocity. Speed hacks above the threshold get snap-backed.
+      movementValidation: {
+        enabled: false,
+        maxDeltaPerMs: 0.012,    // ~1 tile per 80ms; speed-cooldown
+                                  // < ~83ms is too fast and trips it.
+        lastSampleAt: 0,
+        lastValidX: 0,
+        lastValidY: 0,
+        snapbacks: 0,
+      },
+      // M38 — every outgoing packet auto-tagged with HMAC computed
+      // from a session key. Modified packets fail validation. Bypass:
+      // find session key in memory, re-compute HMAC after mutation.
+      hmac: {
+        enabled: false,
+        sessionKey: 0,
+        rejected: 0,
+      },
+      // M39 — every outgoing packet auto-tagged with a sequence
+      // number. Server rejects duplicates. M35's replay attack fails
+      // unless you also forge new seq numbers.
+      sequence: {
+        enabled: false,
+        nextOutSeq: 1,
+        seenInRecv: new Set(),
+        rejected: 0,
+      },
+      // M40 — server periodically broadcasts spectator events.
+      // DLL OPSEC: detect them and auto-disable visual cheats so
+      // admins watching don't see anything weird.
+      spectator: {
+        enabled: false,
+        watching: false,
+        nextToggleAt: 0,
+      },
     };
 
     // M32 — simulated 'kernel' anti-cheat scanner. When enabled, it
@@ -184,6 +220,11 @@ export class AssaultZone {
     this.addrServerHp = memory.bindGameValue("server.canonicalHp",
       () => this.server.canonicalHp,
       v => { this.server.canonicalHp = v; });
+    // M38 — session HMAC key bound as a cell so the player can scan
+    // for it / read it via read_label.
+    this.addrHmacKey = memory.bindGameValue("session.hmac_key",
+      () => this.network.hmac.sessionKey,
+      v => { this.network.hmac.sessionKey = v | 0; });
 
     // Static pointer cell whose VALUE is always the current entity-array
     // base address. Survives rebases — the address itself never moves,
@@ -436,6 +477,16 @@ export class AssaultZone {
     this.respawnPoint.y = SPAWN.y;
     this.network.enabled = false;
     this.network.log = [];
+    this.network.movementValidation.enabled = false;
+    this.network.movementValidation.snapbacks = 0;
+    this.network.hmac.enabled = false;
+    this.network.hmac.rejected = 0;
+    this.network.sequence.enabled = false;
+    this.network.sequence.nextOutSeq = 1;
+    this.network.sequence.seenInRecv = new Set();
+    this.network.sequence.rejected = 0;
+    this.network.spectator.enabled = false;
+    this.network.spectator.watching = false;
     this.acScanner.enabled = false;
     this.acScanner.violations = 0;
     this.acScanner.lastHits = [];
@@ -534,6 +585,75 @@ export class AssaultZone {
     this.network.enabled = false;
   }
 
+  // M37 — server-side position validation. Reject deltas above
+  // maxDeltaPerMs and snap player back to the last valid position.
+  enableMovementValidation() {
+    this.network.movementValidation.enabled = true;
+    this.network.movementValidation.lastSampleAt = performance.now();
+    this.network.movementValidation.lastValidX = this.player.x;
+    this.network.movementValidation.lastValidY = this.player.y;
+    this.network.movementValidation.snapbacks = 0;
+  }
+  disableMovementValidation() {
+    this.network.movementValidation.enabled = false;
+  }
+
+  // M38 — HMAC-sign every outgoing packet from a session key.
+  // Modified packets that don't re-compute HMAC get rejected.
+  enableHmac(sessionKey = 0xCAFE1234) {
+    this.network.hmac.enabled = true;
+    this.network.hmac.sessionKey = sessionKey | 0;
+    this.network.hmac.rejected = 0;
+  }
+  disableHmac() {
+    this.network.hmac.enabled = false;
+  }
+
+  // M39 — sequence-number every outgoing packet; server drops
+  // duplicates. M35 replay fails unless seq is also forged.
+  enableSequence() {
+    this.network.sequence.enabled = true;
+    this.network.sequence.nextOutSeq = 1;
+    this.network.sequence.seenInRecv = new Set();
+    this.network.sequence.rejected = 0;
+  }
+  disableSequence() {
+    this.network.sequence.enabled = false;
+  }
+
+  // M40 — periodically simulate a spectator joining/leaving.
+  // Emits 'spectator_joined' / 'spectator_left' recv packets.
+  enableSpectator() {
+    this.network.spectator.enabled = true;
+    this.network.spectator.watching = false;
+    this.network.spectator.nextToggleAt = performance.now() + 4000;
+  }
+  disableSpectator() {
+    this.network.spectator.enabled = false;
+    this.network.spectator.watching = false;
+  }
+
+  /** Tiny HMAC-shape signing function. NOT real cryptography —
+   *  just a deterministic hash over (canonicalised) packet fields
+   *  + key, so modifying any field invalidates the signature.
+   *  Exposed to DLLs via the compute_hmac() API so the player
+   *  can re-sign after they craft. */
+  static computeHmac(pkt, key) {
+    // Strip hmac field, sort keys for stable hash, then djb2 over
+    // (key XOR each char). Output as a 32-bit integer.
+    const cleaned = {};
+    for (const k of Object.keys(pkt).sort()) {
+      if (k === "hmac" || k === "seq") continue;
+      cleaned[k] = pkt[k];
+    }
+    const s = JSON.stringify(cleaned);
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+      h = ((h << 5) + h + (s.charCodeAt(i) ^ (key & 0xff))) | 0;
+    }
+    return h | 0;
+  }
+
   // M32 — kernel-AC scanner concept. Periodically scans the loaded
   // DLL for known cheat-feature strings; violations climb on hits.
   // Strings here are intentionally generic / made-up so this stays
@@ -575,17 +695,33 @@ export class AssaultZone {
   }
 
   /** Run an outgoing packet through DLL send-hooks. Returns the
-   *  possibly-modified packet, or null if a hook dropped it. */
+   *  possibly-modified packet, or null if a hook dropped it.
+   *
+   *  Order of operations matters for M38/M39:
+   *    1. If hmac/seq enabled, ATTACH them to the original packet first.
+   *    2. Run send-hooks (which may modify pkt — invalidating hmac).
+   *    3. Return the (now possibly-stale-signed) packet for downstream
+   *       validation at the recv / damage-application step.
+   *  Player has to re-sign after their hook mutation if they want the
+   *  packet to validate. */
   _sendPacket(pkt) {
     if (!this.network.enabled) return pkt;
+    let p = { ...pkt };
+    // Attach signature + sequence BEFORE hooks so hooks need to
+    // refresh them after mutating fields.
+    if (this.network.sequence.enabled) {
+      p.seq = this.network.sequence.nextOutSeq++;
+    }
+    if (this.network.hmac.enabled) {
+      p.hmac = AssaultZone.computeHmac(p, this.network.hmac.sessionKey);
+    }
     const dll = (typeof window !== "undefined" && window.__hw) ? window.__hw.dll : null;
-    let p = pkt;
     if (dll && dll.packetHooks) {
       for (const h of dll.packetHooks) {
         if (h.direction !== "send") continue;
         try {
           const r = h.fn(p);
-          if (r === null) return null;       // dropped
+          if (r === null) return null;
           if (r && typeof r === "object") p = r;
         } catch (e) {
           if (dll.log) dll.log("[packet send-hook error] " + e.message);
@@ -595,6 +731,26 @@ export class AssaultZone {
     this.network.log.push({ dir: "send", packet: p, t: performance.now() });
     if (this.network.log.length > 50) this.network.log.shift();
     return p;
+  }
+
+  /** Validate a packet's HMAC + sequence (server-side check).
+   *  Returns true if valid; false if rejected (caller should drop). */
+  _validatePacket(p) {
+    if (this.network.hmac.enabled) {
+      const expected = AssaultZone.computeHmac(p, this.network.hmac.sessionKey);
+      if (p.hmac !== expected) {
+        this.network.hmac.rejected++;
+        return false;
+      }
+    }
+    if (this.network.sequence.enabled) {
+      if (typeof p.seq !== "number" || this.network.sequence.seenInRecv.has(p.seq)) {
+        this.network.sequence.rejected++;
+        return false;
+      }
+      this.network.sequence.seenInRecv.add(p.seq);
+    }
+    return true;
   }
 
   /** Run an incoming packet through DLL recv-hooks, then apply its
@@ -693,6 +849,9 @@ export class AssaultZone {
       const pkt = this._sendPacket({
         type: "damage", target: e.id, amount: dmg, t: now,
       });
+      // M38/M39 — HMAC + sequence validation. Modified packets
+      // without re-signed HMAC fail and the damage is dropped.
+      if (pkt && !this._validatePacket(pkt)) return false;
       if (pkt && typeof pkt.amount === "number") {
         // M34 — server-side validation. Clamp damage to
         // weapon.damage * 2 so crafted 'amount=999' packets get
@@ -791,11 +950,29 @@ export class AssaultZone {
     this.player.x = nx;
     this.player.y = ny;
     this.tilesMoved++;
-    // Emit a position packet for missions that opt in. Real games
-    // send these every server tick (~30Hz); the inspection / craft
-    // missions can hook these for movement-based logic.
     if (this.network.enabled) {
-      this._sendPacket({ type: "position", x: nx, y: ny, t: performance.now() });
+      const now = performance.now();
+      this._sendPacket({ type: "position", x: nx, y: ny, t: now });
+      // M37 — server-side movement validation. Check delta against
+      // maxDeltaPerMs. Speed-hack moves above the threshold get
+      // snapped back to the last valid position.
+      const mv = this.network.movementValidation;
+      if (mv.enabled) {
+        const dt = Math.max(1, now - mv.lastSampleAt);
+        const dist = Math.hypot(nx - mv.lastValidX, ny - mv.lastValidY);
+        const speed = dist / dt;
+        if (speed > mv.maxDeltaPerMs) {
+          // Snap player back; record violation.
+          this.player.x = mv.lastValidX;
+          this.player.y = mv.lastValidY;
+          mv.snapbacks++;
+          this._flashHit();
+        } else {
+          mv.lastSampleAt = now;
+          mv.lastValidX = this.player.x;
+          mv.lastValidY = this.player.y;
+        }
+      }
     }
   }
 
@@ -853,6 +1030,18 @@ export class AssaultZone {
     if (this.enemiesActive) {
       this.enemyManager.step(now);
       this._updateCrosshair();
+    }
+
+    // M40 — spectator events. Toggle 'watching' state every ~8s so
+    // the player has clear windows to test their auto-disable logic.
+    if (this.network.spectator.enabled && now >= this.network.spectator.nextToggleAt) {
+      this.network.spectator.watching = !this.network.spectator.watching;
+      this.network.spectator.nextToggleAt = now + 8000;
+      // Emit a recv packet so DLL recv-hooks can detect the event.
+      this._recvPacket({
+        type: this.network.spectator.watching ? "spectator_joined" : "spectator_left",
+        t: now,
+      });
     }
 
     // M33 — behavioral detector. Records target switches and

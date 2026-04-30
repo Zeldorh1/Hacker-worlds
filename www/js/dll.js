@@ -20,6 +20,7 @@
 // look like.
 
 import { memory } from "./sim-memory.js";
+import { AssaultZone } from "./target-assaultzone.js";
 
 const MAX_CONSOLE_LINES = 200;
 // localStorage key for the last successfully-compiled DLL source.
@@ -113,6 +114,13 @@ export class DllRuntime {
         this.renderHooks.push(fn);
         this._emit();
       },
+      // M38 — compute the simulator's session-HMAC over a packet
+      // using the supplied key. Player workflow: read session.hmac_key
+      // from memory, mutate the packet, then call this to re-sign.
+      // The simulator's recv-side validator will accept the new sig.
+      compute_hmac: (pkt, key) => {
+        return AssaultZone.computeHmac(pkt, key | 0);
+      },
       // M36 — install an input hook. fn({type, x, y}) is called for
       // every canvas tap. Coordinates are in canvas pixel space (the
       // same space your render hook draws in). Return true to mark
@@ -183,7 +191,7 @@ export class DllRuntime {
             "addr_of", "read_label", "write_label", "freeze_label",
             "find_pointers_to", "log", "register_cheat",
             "register_render_hook", "register_packet_hook", "load_payload",
-            "inject_packet", "register_input_hook",
+            "inject_packet", "register_input_hook", "compute_hmac",
             wrapped
           );
           const a = this._makeApi();
@@ -192,7 +200,7 @@ export class DllRuntime {
             a.addr_of, a.read_label, a.write_label, a.freeze_label,
             a.find_pointers_to, a.log, a.register_cheat,
             a.register_render_hook, a.register_packet_hook, a.load_payload,
-            a.inject_packet, a.register_input_hook
+            a.inject_packet, a.register_input_hook, a.compute_hmac
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -261,7 +269,7 @@ return {
         "addr_of", "read_label", "write_label", "freeze_label",
         "find_pointers_to", "log", "register_cheat",
         "register_render_hook", "register_packet_hook", "load_payload",
-        "inject_packet", "register_input_hook",
+        "inject_packet", "register_input_hook", "compute_hmac",
         wrapped
       );
     } catch (e) {
@@ -275,7 +283,7 @@ return {
         a.addr_of, a.read_label, a.write_label, a.freeze_label,
         a.find_pointers_to, a.log, a.register_cheat,
         a.register_render_hook, a.register_packet_hook, a.load_payload,
-        a.inject_packet, a.register_input_hook
+        a.inject_packet, a.register_input_hook, a.compute_hmac
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
