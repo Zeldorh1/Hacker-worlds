@@ -12,6 +12,7 @@
 
 import { memory, SimMemory } from "../sim-memory.js";
 
+
 // Pull the first watched DIRECT address out of the live DOM. Hints can
 // reference this so we can show the player ACTUAL hex math on THEIR
 // own address, instead of a generic "+0x10" instruction that breaks
@@ -73,9 +74,10 @@ export const mission09 = {
 
     dialog.script("VEX", [
       "Quick drill — practice the layout. Find one enemy.x with a normal scan.",
-      "Then add the other three by hand. The 'manually add 0x…' field at the bottom of the watchlist takes a hex address.",
-      "Math is hex arithmetic on the WHOLE address. If your watch is 0x07E1D632A217, +0x10 is 0x07E1D632A227 — last byte goes 17 → 27 → 37. Don't bump just the last digit.",
-      "All four enemy.x cells in the watchlist closes the contract. The hint will compute the exact addresses for you if you get stuck.",
+      "Then add the other three by hand. Two valid forms work in the manual-add field:",
+      "Direct: bump the WHOLE address by 0x10 each time. 0x07E1D632A217 → 0x07E1D632A227 → A237 → A247. The math isn't 'last digit + 0x10'; that breaks for any byte ending != 0.",
+      "Or chain: if you ran a pointer scan and found something like [0x…302C]+0x18 = enemy[0].x, paste [0x…302C]+0x28 / +0x38 / +0x48 straight into the manual-add box. Same arithmetic, lives in the offset.",
+      "All four enemy.x cells in the watchlist closes the contract. The hint will compute exact addresses if you get stuck.",
     ]);
 
     let done = false;
@@ -83,11 +85,28 @@ export const mission09 = {
       memory.addressOfLabel(`enemy[${i}].x`)
     );
 
+    function resolvedAddrs() {
+      const watched = new Set();
+      // Direct entries.
+      for (const el of document.querySelectorAll(".watchlist li[data-addr]")) {
+        watched.add(el.dataset.addr);
+      }
+      // Chain entries — resolve through current pointer value.
+      const scanner = window.__hw && window.__hw.scanner;
+      if (scanner && scanner.watch) {
+        for (const [, e] of scanner.watch) {
+          if (e.type !== "chain") continue;
+          const baseVal = memory.read(e.baseAddr);
+          if (typeof baseVal !== "number" || !Number.isFinite(baseVal)) continue;
+          watched.add(SimMemory.formatAddr(baseVal + e.offset));
+        }
+      }
+      return watched;
+    }
+
     const interval = setInterval(() => {
       if (done) return;
-      const watchEls = document.querySelectorAll(".watchlist li[data-addr]");
-      const watched = new Set();
-      for (const el of watchEls) watched.add(el.dataset.addr);
+      const watched = resolvedAddrs();
       const found = enemyXAddrs.filter(a => watched.has(a)).length;
       if (found >= 4) {
         done = true;

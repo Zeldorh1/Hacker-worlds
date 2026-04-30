@@ -169,12 +169,32 @@ export class Scanner {
 
   _manualAdd() {
     if (!this.$manualAddr) return;
-    let raw = (this.$manualAddr.value || "").trim();
+    const raw = (this.$manualAddr.value || "").trim();
     if (!raw) { return; }
-    if (!raw.toLowerCase().startsWith("0x")) raw = "0x" + raw;
-    const hex = raw.slice(2).toUpperCase();
+    // Accept pointer-chain syntax: [0x...]+0x...   →   chain entry.
+    // Whitespace around the brackets / plus is tolerated.
+    const chain = raw.match(/^\[\s*(0x[0-9a-fA-F]+)\s*\]\s*\+\s*(0x[0-9a-fA-F]+|\d+)\s*$/);
+    if (chain) {
+      const baseHex = chain[1].slice(2).toUpperCase().padStart(12, "0");
+      const baseAddr = "0x" + baseHex;
+      const offRaw = chain[2];
+      const offset = offRaw.toLowerCase().startsWith("0x")
+        ? parseInt(offRaw, 16) : parseInt(offRaw, 10);
+      if (!Number.isFinite(offset)) {
+        this.$status.textContent = "Manual add: chain offset is not a number.";
+        return;
+      }
+      this.addChainToWatchlist(baseAddr, offset);
+      this.$manualAddr.value = "";
+      this.$status.textContent = `Added chain [${baseAddr}]+${offHex(offset)} to watchlist.`;
+      return;
+    }
+    // Otherwise treat as a direct hex address.
+    let direct = raw;
+    if (!direct.toLowerCase().startsWith("0x")) direct = "0x" + direct;
+    const hex = direct.slice(2).toUpperCase();
     if (!/^[0-9A-F]+$/.test(hex)) {
-      this.$status.textContent = "Manual add: not valid hex.";
+      this.$status.textContent = "Manual add: not valid hex (or use [0x…]+0x… for chains).";
       return;
     }
     const padded = "0x" + hex.padStart(12, "0");
