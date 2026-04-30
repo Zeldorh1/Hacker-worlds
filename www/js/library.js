@@ -6,6 +6,208 @@
 
 const ARTICLES = [
   {
+    id: "trainer-resilience-aob",
+    title: "AOB Pattern Scans — How Trainers Survive Game Updates",
+    brief: "Why hardcoded offsets break and pattern scanning fixes it. The technique behind 'still works after the patch' trainers.",
+    body: `
+      <h2>The hardcoded-offset problem</h2>
+      <p>M24 OFFSET TO DLL had you scan for HP, paste the address into
+      a <code>const TARGET_ADDR</code>. Works for that session — your
+      DLL writes to the right cell every frame. But the moment the
+      game updates and reshuffles its memory layout, your hardcoded
+      address points to garbage. Trainer dies the day after release.</p>
+
+      <p>Real-world: every AssaultCube patch in history has been
+      stable, so AC trainers don't have this problem. Modern
+      shooters patch every 2-4 weeks. A hardcoded-offset trainer
+      breaks each patch — you'd rebuild and redistribute every
+      cycle, which is unsustainable for any non-toy cheat.</p>
+
+      <h2>What AOB scans do</h2>
+      <p>"AOB" = Array Of Bytes. Instead of hardcoding an address,
+      you scan the loaded module's memory at startup for a unique
+      byte sequence and derive offsets from where it lands.</p>
+
+      <p>The byte sequence (the "pattern") can be:</p>
+      <ul>
+        <li><strong>x86 instructions</strong> from a function near
+            the data you want. Updates rarely change instruction
+            patterns inside small functions.</li>
+        <li><strong>Float / double constants</strong> the game uses
+            (gravity = 9.81, max-speed = 320.0, etc).</li>
+        <li><strong>String references</strong> — pointers to known
+            strings inside .rdata.</li>
+        <li><strong>Vtable signatures</strong> — class layout doesn't
+            usually change between versions.</li>
+      </ul>
+
+      <h2>Real CE pattern format</h2>
+      <pre><code>// Cheat Engine syntax — '?' means wildcard byte
+// (matches anything, used for offsets that DO change)
+8B 0D ?? ?? ?? ?? 89 0D ?? ?? ?? ?? 8B 06 89 06</code></pre>
+
+      <p>You'd run this against <code>game.exe</code>'s loaded
+      module. CE walks the bytes, finds the match, returns the
+      address. Your trainer reads the offset off relative to that
+      match.</p>
+
+      <h2>Real C++ pattern scanner skeleton</h2>
+      <pre><code>uintptr_t aob_scan(const char* pattern, const char* mask,
+                   uintptr_t base, size_t size) {
+    for (uintptr_t i = 0; i &lt; size; i++) {
+        bool found = true;
+        for (size_t j = 0; mask[j] != '\\0'; j++) {
+            if (mask[j] == 'x' &&
+                pattern[j] != *(char*)(base + i + j)) {
+                found = false; break;
+            }
+        }
+        if (found) return base + i;
+    }
+    return 0;
+}
+
+// Usage at trainer startup:
+HMODULE hMod = GetModuleHandleA("game.exe");
+MODULEINFO mi; GetModuleInformation(GetCurrentProcess(), hMod, &mi, sizeof(mi));
+uintptr_t playerStructAddr = aob_scan(
+    "\\x8B\\x0D\\x00\\x00\\x00\\x00\\x89\\x0D",
+    "xx????xx",
+    (uintptr_t)hMod, mi.SizeOfImage);
+// Now use playerStructAddr + known offsets for HP/ammo/etc.</code></pre>
+
+      <h2>How M44 simulates this</h2>
+      <p><code>find_pattern([100, 30, 5, 5, 110])</code> walks the
+      simulator's memory for a sequence of consecutive 4-byte cells
+      whose values match. The player struct's fresh-start values
+      (hp=100, ammo=30, x=5, y=5, cooldown=110) are unique enough
+      to identify the struct anywhere — the DLL self-resolves the
+      base address at startup, no hardcoding needed.</p>
+
+      <p>Real-world the pattern would be byte-level (x86 instruction
+      bytes from the game's HP-update function), but the
+      pedagogical shape is identical: scan for unique pattern,
+      derive offsets, trainer resilient to layout changes.</p>
+
+      <h2>Going further</h2>
+      <ul>
+        <li><strong>Hybrid: hardcoded fallback.</strong> Try AOB
+            first; if it fails (game changed too much), fall back to
+            a hardcoded offset for known versions. Best of both.</li>
+        <li><strong>Pattern collisions.</strong> Patterns that
+            match multiple addresses fail silently (you find SOME
+            address but not the right one). Always verify by checking
+            sentinel values at known offsets after the scan.</li>
+        <li><strong>Symbol export hacks.</strong> If the game's PDB
+            wasn't stripped (rare), <code>SymFromName</code> can
+            resolve named symbols — even more resilient than AOB.</li>
+        <li><strong>Pattern banks.</strong> Pro cheats ship with a
+            JSON file of patterns + offsets per game version, can
+            update the file without recompiling the DLL.</li>
+      </ul>
+
+      <h2>Why this matters for any serious trainer</h2>
+      <p>Any trainer you intend to keep working past the next patch
+      ships with AOB scans. Even AC trainers benefit: the pattern
+      makes the trainer self-documenting (anyone reading the source
+      sees what makes the struct unique) and lets the same code work
+      on different AC builds (1.2.0.2 stable, but custom server
+      builds exist with reordered structs).</p>
+    `,
+  },
+  {
+    id: "anti-debug-layer",
+    title: "Anti-Debug — The Layer Above Anti-Cheat",
+    brief: "Four detection vectors anti-cheat uses to spot debuggers. Bypass for each. Why this layer exists.",
+    body: `
+      <h2>Why anti-debug exists</h2>
+      <p>Anti-cheat AND debuggers want the same thing: deep visibility
+      into the game's process. Reverse engineers attach debuggers
+      (x64dbg, Cheat Engine's built-in debugger, IDA) to step through
+      code, set breakpoints, find where damage is calculated, learn
+      offsets. From the AC's perspective, ANY attached debugger means
+      the user is preparing to cheat. So AC's first job is to detect
+      and refuse to run while debugged.</p>
+
+      <p>The four common detection vectors on Windows:</p>
+
+      <h3>1. IsDebuggerPresent</h3>
+      <p>Simplest — kernel32 export, returns BOOL. AC calls it,
+      true means a usermode debugger is attached. Bypass: detour
+      <code>kernel32!IsDebuggerPresent</code> with MinHook, return
+      FALSE always. M46's exact lesson.</p>
+
+      <h3>2. PEB.BeingDebugged</h3>
+      <p>The Process Environment Block has a single byte flag the OS
+      sets when a debugger attaches. <code>IsDebuggerPresent</code>
+      itself just reads this byte. Sneakier AC reads the byte
+      directly to bypass IsDebuggerPresent hooks. Counter: write 0 to
+      the PEB byte yourself:</p>
+      <pre><code>__asm {
+    mov eax, fs:[0x30]    ; PEB pointer
+    mov byte ptr [eax+2], 0    ; PEB.BeingDebugged = 0
+}</code></pre>
+
+      <h3>3. NtQueryInformationProcess(ProcessDebugPort)</h3>
+      <p>Asks the kernel "is anyone listening on this process's
+      debug port?" Returns a non-zero handle if so. AC calls it
+      via ntdll. Bypass: detour <code>ntdll!NtQueryInformationProcess</code>
+      and return 0 for the ProcessDebugPort info class.</p>
+
+      <h3>4. Hardware breakpoint registers (DR0-DR7)</h3>
+      <p>x86 has dedicated debug registers. CE / x64dbg use them
+      for hardware breakpoints. AC reads thread context every
+      frame, checks if any debug register is non-zero. Bypass: clear
+      DR0-DR3 in your DLL's main loop (or use SetThreadContext to
+      zero them on every thread).</p>
+
+      <h2>Other vectors you'll see</h2>
+      <ul>
+        <li><strong>Timing checks</strong> — AC measures
+            <code>QueryPerformanceCounter</code> deltas. A debugger
+            paused execution = huge delta. Bypass: hook the timer
+            or use VEH-based debugging that doesn't pause.</li>
+        <li><strong>Self-modifying code</strong> — game writes its
+            own code while running. Debuggers that single-step have
+            issues with this. Hard to bypass cleanly.</li>
+        <li><strong>Exception-based</strong> — AC throws an INT3
+            (0xCC) and catches it. If a debugger swallowed it
+            instead, AC notices. Bypass: VEH first-chance handler
+            in your DLL catches before debugger sees it.</li>
+        <li><strong>OutputDebugString amplification</strong> — AC
+            spam-calls OutputDebugString while watching for
+            debugger latency. Subtle but effective.</li>
+        <li><strong>NtSetInformationThread(HideFromDebugger)</strong>
+            on AC's own threads — debugger can't step into them.
+            Player needs to detour this if they want to debug.</li>
+      </ul>
+
+      <h2>How M46 simulates this</h2>
+      <p>The simulator's <code>this.debugger.detected = true</code>
+      represents the OS reporting a debugger is attached. The AC's
+      check runs every 1.2s, calls every registered DLL hook, and
+      uses the final answer. If it's still true, detection counter
+      climbs.</p>
+
+      <p>Player's hook in the M46 template returns <code>false</code>
+      regardless of input — the OS-equivalent of patching
+      IsDebuggerPresent's return value. Three clean checks in a row
+      = mission survives.</p>
+
+      <h2>Stacking with the rest of the AC layers</h2>
+      <p>Real shipped cheats patch all four detection vectors plus
+      hide processes (M41) plus hide modules (M45) plus mangle
+      strings (M32) plus humanize behavior (M33). Each layer is
+      its own engineering effort. Pro cheats ship full coverage; AC
+      ships full coverage; the arms race lives in who finds the
+      gap first each patch cycle.</p>
+
+      <p>For AssaultCube — none of this applies. AC ships zero
+      anti-debug. The whole layer is conceptual ammunition for
+      protected-game work / defensive engineering.</p>
+    `,
+  },
+  {
     id: "process-hiding-hackshield",
     title: "Process Hiding — Beating HackShield-Class Scanners",
     brief: "Why renaming Cheat Engine doesn't work and what does. Hooking the OS process-list call so your tool is invisible to the game's anti-cheat.",

@@ -75,6 +75,13 @@ export class DllRuntime {
      *  hooking NtQuerySystemInformation in ntdll to filter the
      *  process list before the AC walks it. */
     this.processEnumHooks = [];
+    /** Module-enumeration hooks — fn(modules) → filtered list.
+     *  M45 uses these to hide an injected DLL from
+     *  EnumProcessModules walks inside the game's own process. */
+    this.moduleEnumHooks = [];
+    /** IsDebuggerPresent hooks — fn(detected) → boolean.
+     *  M46 uses these to lie about debugger presence. */
+    this.isDebuggerHooks = [];
   }
 
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
@@ -139,6 +146,53 @@ export class DllRuntime {
         }
         this.processEnumHooks.push(fn);
         this._emit();
+      },
+      // M45 — hook the in-process module-list call. Real-world
+      // equivalent: detour on K32EnumProcessModules / Module32First.
+      register_module_enum_hook: (fn) => {
+        if (typeof fn !== "function") {
+          this.log("[register_module_enum_hook] fn must be a function");
+          return;
+        }
+        this.moduleEnumHooks.push(fn);
+        this._emit();
+      },
+      // M46 — hook the IsDebuggerPresent check. fn(detected) →
+      // boolean, where you can lie about whether a debugger is
+      // attached. Real-world: detour on kernel32!IsDebuggerPresent
+      // (or patch the PEB.BeingDebugged byte directly).
+      register_isdebugger_hook: (fn) => {
+        if (typeof fn !== "function") {
+          this.log("[register_isdebugger_hook] fn must be a function");
+          return;
+        }
+        this.isDebuggerHooks.push(fn);
+        this._emit();
+      },
+      // M44 — scan memory for a sequence of consecutive int values
+      // and return the address of the first match. Real-world
+      // equivalent: AOB (array-of-bytes) pattern scan over the
+      // game's loaded module — used by trainers to self-resolve
+      // offsets across game updates without hardcoding.
+      find_pattern: (values) => {
+        if (!Array.isArray(values) || values.length === 0) return null;
+        // Sort cells by numeric address so we can walk consecutive
+        // 4-byte runs.
+        const entries = [];
+        for (const [addr, cell] of memory.cells) {
+          entries.push({ n: parseInt(addr.slice(2), 16), addr, cell });
+        }
+        entries.sort((a, b) => a.n - b.n);
+        for (let i = 0; i <= entries.length - values.length; i++) {
+          let match = true;
+          for (let j = 0; j < values.length; j++) {
+            const e = entries[i + j];
+            if (e.n !== entries[i].n + j * 4) { match = false; break; }
+            if (e.cell.value !== values[j]) { match = false; break; }
+          }
+          if (match) return entries[i].addr;
+        }
+        return null;
       },
       // M36 — install an input hook. fn({type, x, y}) is called for
       // every canvas tap. Coordinates are in canvas pixel space (the
@@ -211,7 +265,8 @@ export class DllRuntime {
             "find_pointers_to", "log", "register_cheat",
             "register_render_hook", "register_packet_hook", "load_payload",
             "inject_packet", "register_input_hook", "compute_hmac",
-        "register_proc_enum_hook",
+        "register_proc_enum_hook", "register_module_enum_hook",
+        "register_isdebugger_hook", "find_pattern",
             wrapped
           );
           const a = this._makeApi();
@@ -221,7 +276,8 @@ export class DllRuntime {
             a.find_pointers_to, a.log, a.register_cheat,
             a.register_render_hook, a.register_packet_hook, a.load_payload,
             a.inject_packet, a.register_input_hook, a.compute_hmac,
-        a.register_proc_enum_hook
+        a.register_proc_enum_hook, a.register_module_enum_hook,
+        a.register_isdebugger_hook, a.find_pattern
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -291,7 +347,8 @@ return {
         "find_pointers_to", "log", "register_cheat",
         "register_render_hook", "register_packet_hook", "load_payload",
         "inject_packet", "register_input_hook", "compute_hmac",
-        "register_proc_enum_hook",
+        "register_proc_enum_hook", "register_module_enum_hook",
+        "register_isdebugger_hook", "find_pattern",
         wrapped
       );
     } catch (e) {
@@ -306,7 +363,8 @@ return {
         a.find_pointers_to, a.log, a.register_cheat,
         a.register_render_hook, a.register_packet_hook, a.load_payload,
         a.inject_packet, a.register_input_hook, a.compute_hmac,
-        a.register_proc_enum_hook
+        a.register_proc_enum_hook, a.register_module_enum_hook,
+        a.register_isdebugger_hook, a.find_pattern
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
@@ -390,6 +448,8 @@ return {
     this.packetHooks = [];      // clear packet hooks
     this.inputHooks = [];       // clear input hooks
     this.processEnumHooks = []; // clear proc-enum hooks
+    this.moduleEnumHooks = [];  // clear module-enum hooks
+    this.isDebuggerHooks = [];  // clear isdebugger hooks
     this.log("DLL ejected");
     this._emit();
   }

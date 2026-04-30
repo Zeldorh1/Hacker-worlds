@@ -53,6 +53,7 @@ class Player {
     this.ammo = 30;
     this.alive = 1;             // M19 — gates death state; freeze=1 to skip dying
     this.respawnTimerMs = 0;    // counts down from RESPAWN_DELAY when dead
+    this.noClip = 0;            // M43 — when 1, _tryMove skips wall-collision check
   }
 }
 
@@ -180,6 +181,38 @@ export class AssaultZone {
       detections: 0,
       threshold: 3,
       lastDetectedFingerprints: [],
+    };
+
+    // M45 — fake 'loaded modules in this process' list. Different
+    // from M41's OS-level process list — this is what
+    // EnumProcessModules sees inside the game's own process.
+    // The cheat DLL is in here; bypass is hooking the enum and
+    // filtering it out.
+    this.modules = [
+      { name: "ac_client.exe",  suspicious: false },
+      { name: "kernel32.dll",   suspicious: false },
+      { name: "user32.dll",     suspicious: false },
+      { name: "d3d9.dll",       suspicious: false },
+      { name: "Hacker Worlds Cheat.dll", suspicious: true, fingerprint: "cheat-dll" },
+    ];
+    this.moduleShield = {
+      enabled: false,
+      scanIntervalMs: 1500,
+      lastScanAt: 0,
+      detections: 0,
+      threshold: 3,
+    };
+
+    // M46 — fake IsDebuggerPresent state. Sim toggles this on
+    // periodically; if a registered isdebugger-hook returns false,
+    // the AC's debug check is fooled. Otherwise mission fails.
+    this.debugger = {
+      enabled: false,
+      detected: false,
+      scanIntervalMs: 1200,
+      lastScanAt: 0,
+      detections: 0,
+      threshold: 3,
     };
 
     // M33 — behavioral detector. Tracks recent crosshair-target
@@ -365,6 +398,13 @@ export class AssaultZone {
       "respawn.y",
       () => this.respawnPoint.y,
       v => { this.respawnPoint.y = v | 0; });
+    // M43 NOCLIP — wall-collision flag. When 1, _tryMove skips the
+    // wall check so the player can walk through walls.
+    this.addrPlayerNoClip = memory.bindGameValueAt(
+      SimMemory.formatAddr(this.playerStructBase + 0x28),
+      "player.noClip",
+      () => this.player.noClip,
+      v => { this.player.noClip = (v | 0) ? 1 : 0; });
 
     // Code instructions — registered with the CodeSegment so the
     // player can use Find What Writes to discover and NOP them out.
@@ -518,6 +558,12 @@ export class AssaultZone {
     this.cheatShield.enabled = false;
     this.cheatShield.detections = 0;
     this.cheatShield.lastDetectedFingerprints = [];
+    this.moduleShield.enabled = false;
+    this.moduleShield.detections = 0;
+    this.debugger.enabled = false;
+    this.debugger.detections = 0;
+    this.player.noClip = 0;
+    memory.setFrozen(this.addrPlayerNoClip, false);
     this.behavioral.enabled = false;
     this.behavioral.recentSwitches = [];
     this.behavioral.violations = 0;
@@ -662,6 +708,26 @@ export class AssaultZone {
   disableCheatShield() {
     this.cheatShield.enabled = false;
   }
+
+  // M45 — module-list scanner. Walks loaded modules, looks for the
+  // cheat DLL. Bypass via register_module_enum_hook.
+  enableModuleShield() {
+    this.moduleShield.enabled = true;
+    this.moduleShield.detections = 0;
+    this.moduleShield.lastScanAt = performance.now();
+  }
+  disableModuleShield() { this.moduleShield.enabled = false; }
+
+  // M46 — debugger-present scanner. If detected for >threshold
+  // intervals in a row, mission fails. Bypass by registering an
+  // isdebugger hook that returns false.
+  enableDebuggerCheck() {
+    this.debugger.enabled = true;
+    this.debugger.detected = true;   // sim PRETENDS a debugger is attached
+    this.debugger.detections = 0;
+    this.debugger.lastScanAt = performance.now();
+  }
+  disableDebuggerCheck() { this.debugger.enabled = false; }
 
   // M40 — periodically simulate a spectator joining/leaving.
   // Emits 'spectator_joined' / 'spectator_left' recv packets.
@@ -988,7 +1054,8 @@ export class AssaultZone {
     const nx = this.player.x + dx;
     const ny = this.player.y + dy;
     if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) return;
-    if (this.map[ny][nx] === 1) return;
+    // M43 NOCLIP — skip the wall check when player.noClip is set.
+    if (this.map[ny][nx] === 1 && !this.player.noClip) return;
     this.player.x = nx;
     this.player.y = ny;
     this.tilesMoved++;
@@ -1072,6 +1139,50 @@ export class AssaultZone {
     if (this.enemiesActive) {
       this.enemyManager.step(now);
       this._updateCrosshair();
+    }
+
+    // M45 — module-list scan inside the game process. Walks
+    // this.modules through DLL module-enum hooks, looks for
+    // suspicious entries.
+    if (this.moduleShield.enabled &&
+        now - this.moduleShield.lastScanAt > this.moduleShield.scanIntervalMs) {
+      this.moduleShield.lastScanAt = now;
+      const dll = (typeof window !== "undefined" && window.__hw)
+        ? window.__hw.dll : null;
+      let visible = this.modules.slice();
+      if (dll && dll.moduleEnumHooks) {
+        for (const hook of dll.moduleEnumHooks) {
+          try {
+            const filtered = hook(visible);
+            if (Array.isArray(filtered)) visible = filtered;
+          } catch (e) { if (dll.log) dll.log("[module hook error] " + e.message); }
+        }
+      }
+      const hits = visible.filter(m => m && m.suspicious);
+      if (hits.length > 0) this.moduleShield.detections++;
+      else this.moduleShield.detections = Math.max(0, this.moduleShield.detections - 1);
+    }
+
+    // M46 — debugger-present check. Sim claims a debugger is on
+    // (debugger.detected = true). DLL hook can override the answer
+    // to false. If anything still says true after hooks, bump
+    // detections.
+    if (this.debugger.enabled &&
+        now - this.debugger.lastScanAt > this.debugger.scanIntervalMs) {
+      this.debugger.lastScanAt = now;
+      const dll = (typeof window !== "undefined" && window.__hw)
+        ? window.__hw.dll : null;
+      let answer = this.debugger.detected;
+      if (dll && dll.isDebuggerHooks) {
+        for (const hook of dll.isDebuggerHooks) {
+          try {
+            const r = hook(answer);
+            if (typeof r === "boolean") answer = r;
+          } catch (e) { if (dll.log) dll.log("[isdebugger hook error] " + e.message); }
+        }
+      }
+      if (answer) this.debugger.detections++;
+      else this.debugger.detections = Math.max(0, this.debugger.detections - 1);
     }
 
     // M41 — HackShield process scan. Every scanIntervalMs, ask the
