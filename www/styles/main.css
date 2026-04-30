@@ -835,8 +835,9 @@ body[data-mode="hub"] .violation-bar { display: none; }
 .mission-alert {
   position: fixed; inset: 0; z-index: 9999;
   background: rgba(6, 8, 10, 0.92);
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: flex-start; justify-content: center;
   padding: 1rem;
+  overflow-y: auto;
   animation: alert-fade-in 200ms ease-out;
 }
 @keyframes alert-fade-in { from { opacity: 0; } to { opacity: 1; } }
@@ -845,6 +846,8 @@ body[data-mode="hub"] .violation-bar { display: none; }
   border: 2px solid var(--danger);
   border-radius: 6px;
   max-width: 460px;
+  width: 100%;
+  margin: auto;
   padding: 1.4rem 1.2rem;
   box-shadow: 0 0 40px rgba(248, 113, 113, 0.3);
   position: relative;
@@ -887,14 +890,21 @@ body[data-mode="hub"] .violation-bar { display: none; }
 .mission-alert-body {
   color: var(--fg);
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.85rem;
-  line-height: 1.55;
+  font-size: 0.82rem;
+  line-height: 1.5;
   white-space: pre-line;
+  word-break: break-word;
   margin-bottom: 1.2rem;
-  padding: 0.8rem;
+  padding: 0.7rem;
   background: rgba(0, 0, 0, 0.4);
   border-left: 2px solid var(--danger);
   border-radius: 2px;
+}
+@media (max-width: 480px) {
+  .mission-alert-card { padding: 1rem 0.85rem; }
+  .mission-alert-icon { font-size: 1.7rem; }
+  .mission-alert-title { font-size: 0.92rem; margin-bottom: 0.75rem; }
+  .mission-alert-body { font-size: 0.75rem; line-height: 1.45; padding: 0.55rem; }
 }
 .mission-alert-card .primary {
   width: 100%;
