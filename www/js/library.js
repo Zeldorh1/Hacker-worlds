@@ -6,6 +6,129 @@
 
 const ARTICLES = [
   {
+    id: "multi-level-chains",
+    title: "Multi-level Pointer Chains — Sub-structs and How To Walk Them",
+    brief: "Real game stats live 2-4 pointers deep. Recoil, weapon stats, current target, animation state — they're all 'over there.'",
+    body: `
+      <h2>Why one struct isn't enough</h2>
+      <p>M16 STRUCT DISCOVERY taught you to find HP and walk the player
+      struct's adjacent fields. That's the entry-level technique. The next
+      step up is when stats <em>aren't</em> in the player struct — they're
+      in a separate struct, and the player struct just holds a pointer to it.</p>
+
+      <p>Real game class layout looks something like:</p>
+      <pre><code>class Player {
+  int   hp;                  // +0x00
+  int   ammo;                // +0x04
+  Vec3  position;            // +0x08 (12 bytes)
+  Weapon* currentWeapon;     // +0x14  ← pointer
+  Inventory* inventory;      // +0x1C  ← pointer
+  StatusEffects* effects;    // +0x24  ← pointer
+  ...
+};
+
+class Weapon {
+  int   damage;              // +0x00
+  float fireRate;            // +0x04
+  float recoilPerShot;       // +0x08
+  int   magazineSize;        // +0x0C
+  ...
+};</code></pre>
+
+      <p>If you scan for the recoil value, you won't find it next to HP.
+      It's in the Weapon struct, which is allocated separately. To get
+      there, you have to <em>follow</em> the pointer.</p>
+
+      <h2>How to recognise a pointer in a hex dump</h2>
+      <p>When you Browse Memory and see fields like:</p>
+      <pre><code>+0x00  100              ← HP
++0x04  30               ← ammo
++0x08  5
++0x0C  5                ← position (x, y)
++0x10  110              ← move cooldown
++0x14  140737488355328  ← ?!
++0x18  &lt;random&gt;</code></pre>
+
+      <p>That huge number at +0x14 isn't a stat — no game has 140 trillion
+      of anything. It's an <strong>address</strong>. Specifically, the address
+      of another struct in memory. Type that number into BROWSE MEMORY's
+      target field and Browse it to see what's there.</p>
+
+      <p>Heuristic: any value &gt; ~10⁹ that doesn't match a HUD readout
+      is almost certainly a pointer. In real CE you'd toggle "Hex" view on
+      the address column and see canonical pointer-shaped hex
+      (<code>00007FF6...</code> on Windows x64).</p>
+
+      <h2>Building a multi-level chain in CE</h2>
+      <p>Once you know the path, you tell Cheat Engine "the value I care
+      about lives at <code>[player_base + 0x14] + 0x08</code>." That's a
+      2-level chain. CE resolves it every frame:</p>
+
+      <ol>
+        <li>Read 8 bytes at <code>player_base + 0x14</code>. That's the
+            weapon pointer value.</li>
+        <li>Add <code>0x08</code> to it. That's the address of the recoil
+            cell.</li>
+        <li>Read 4 bytes there. That's the recoil value.</li>
+      </ol>
+
+      <p>Right-click an address in CE → <em>Add Address Manually</em> → tick
+      <em>Pointer</em> → enter base, tick <em>Pointer</em> again for each
+      level, fill in offsets. The chain survives weapon swaps, level
+      reloads, anything where the weapon pointer changes — because every
+      frame you're reading the <em>current</em> pointer value.</p>
+
+      <h2>Levels you'll see in real games</h2>
+      <table style="width:100%; border-collapse:collapse; margin: 0.5rem 0;">
+        <tr><th style="text-align:left; padding:0.3em 0;">Stat</th><th style="text-align:left; padding:0.3em 0;">Typical depth</th></tr>
+        <tr><td>HP, ammo, score</td><td>0 — directly in player struct</td></tr>
+        <tr><td>Position, rotation</td><td>0 or 1 — sometimes embedded, sometimes Vec3*</td></tr>
+        <tr><td>Weapon damage, recoil, fire rate</td><td>1 — Weapon* in player struct</td></tr>
+        <tr><td>Inventory item count</td><td>2 — Player → Inventory* → Item array → count</td></tr>
+        <tr><td>Current target's HP</td><td>2-3 — Player → Camera → AimedAt* → HP</td></tr>
+        <tr><td>Animation skeleton bone position</td><td>3-4 — Player → Mesh* → Skeleton* → Bone[i]</td></tr>
+      </table>
+
+      <h2>The simulator's M17 layout</h2>
+      <p>For RECOIL CONTROL the simulator gives you exactly the shape from
+      the table above:</p>
+      <ul>
+        <li><code>player_base + 0x14</code> = weapon pointer (a 12-hex-digit
+            address that looks too big to be a stat)</li>
+        <li><code>[player_base + 0x14] + 0x00</code> = damage (you know it's 25)</li>
+        <li><code>[player_base + 0x14] + 0x04</code> = cooldownMs (320)</li>
+        <li><code>[player_base + 0x14] + 0x08</code> = recoilPerShot ← target</li>
+      </ul>
+
+      <p>Two known values (damage, cooldown) flank the unknown one. That's
+      the actual gift commercial trainer devs get — adjacent fields you
+      already understand <em>tell you</em> you're in the right struct, so
+      the unfamiliar value next to them must be the stat you came for.</p>
+
+      <h2>Common gotchas</h2>
+      <ul>
+        <li><strong>Pointer encryption.</strong> Some engines XOR pointers
+            with a per-process key before storing them. The +0x14 cell will
+            look like noise (random-shaped int) until decoded. Defeated by
+            finding the decode routine in the binary.</li>
+        <li><strong>NULL during transitions.</strong> Weapon pointer is 0
+            for a frame while the player swaps. CE chains read NULL → "??"
+            → no value. Mostly cosmetic; freezes still apply once the
+            pointer is non-NULL again.</li>
+        <li><strong>Smart pointers / handles.</strong> Some games use
+            <code>shared_ptr</code> or 32-bit handles into a table.
+            +0x14 might hold an 8-byte struct (control block + ptr) or a
+            small handle that has to be looked up. One more level of
+            indirection, same workflow.</li>
+      </ul>
+
+      <p>Once you're comfortable with 2-level chains, every additional level
+      is just "browse, recognise pointer, browse again." There's no
+      qualitatively new technique. The ceiling is your patience for clicking
+      Browse a few times.</p>
+    `,
+  },
+  {
     id: "struct-discovery",
     title: "How Trainers Actually Work — Player Struct Discovery",
     brief: "Find one stat, walk the bytes, map the whole struct. The technique behind every game trainer ever shipped.",

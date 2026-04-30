@@ -153,6 +153,8 @@ export class AssaultZone {
       lastFireAt: 0,
       cooldownMs: 320,
       damage: 25,
+      recoilPerShot: 0,    // M17 enables this; 0 in earlier missions
+      recoilCurrent: 0,    // accumulated recoil offset (decays in update)
     };
     this.crosshairTargetId = 0;
     this.aimbotKills = 0;
@@ -162,17 +164,39 @@ export class AssaultZone {
     this.addrCrosshair = memory.bindGameValue("crosshair.target",
       () => this.crosshairTargetId,
       v => { this.crosshairTargetId = v; });
-    // M11 SUPER BULLETS — the weapon damage is a plain int the player
-    // can scan for and edit upward. Real game equivalent: weapon stats
-    // table cell.
-    this.addrWeaponDamage = memory.bindGameValue("weapon.damage",
+
+    // Weapon stats live in their own struct, separately allocated.
+    // Real games keep a weapon descriptor per gun and the player struct
+    // holds a pointer to whichever is equipped. M17 RECOIL CONTROL
+    // teaches the player to follow that pointer to find the recoil
+    // stat — a 2-level chain rather than a flat scan.
+    //
+    // Layout (3 ints = 12 bytes; reserve 32 for future growth):
+    //   +0x00  damage          (default 25, M11)
+    //   +0x04  cooldownMs      (default 320, M14)
+    //   +0x08  recoilPerShot   (M17 — typically 0; mission opts in)
+    this.weaponStructBase = memory.reserveBlock(32, 1);
+    const WA = (off) => SimMemory.formatAddr(this.weaponStructBase + off);
+    this.addrWeaponDamage = memory.bindGameValueAt(WA(0x00), "weapon.damage",
       () => this.weapon.damage,
       v => { this.weapon.damage = v; });
-    // M14 RAPID FIRE — fire-rate cooldown bound to memory. Same pattern
-    // as M12 but on the weapon side: freeze it low and you can spam.
-    this.addrWeaponCooldown = memory.bindGameValue("weapon.cooldownMs",
+    this.addrWeaponCooldown = memory.bindGameValueAt(WA(0x04), "weapon.cooldownMs",
       () => this.weapon.cooldownMs,
       v => { this.weapon.cooldownMs = v; });
+    this.addrWeaponRecoil = memory.bindGameValueAt(WA(0x08), "weapon.recoilPerShot",
+      () => this.weapon.recoilPerShot,
+      v => { this.weapon.recoilPerShot = v; });
+
+    // Player struct also holds a pointer to the active weapon
+    // descriptor at +0x14. Browsing player struct shows this as a
+    // huge int that 'looks like an address' — that's the M17 hook.
+    // ptr-typed so memory.tick doesn't truncate the 44-bit value.
+    this.addrPlayerWeaponPtr = memory.bindGameValueAt(
+      SimMemory.formatAddr(this.playerStructBase + 0x14),
+      "player.currentWeaponPtr",
+      () => this.weaponStructBase,
+      () => {},   // read-only from gameplay
+      "ptr");
 
     this.paused = false;
     this._pausedAt = 0;
@@ -217,6 +241,10 @@ export class AssaultZone {
     this.weapon.lastFireAt = 0;
     this.weapon.damage = 25;
     this.weapon.cooldownMs = 320;
+    this.weapon.recoilPerShot = 0;
+    this.weapon.recoilCurrent = 0;
+    this.weapon.missesFromRecoil = 0;
+    this._lastRecoilDecayAt = 0;
     this.crosshairTargetId = 0;
     this.aimbotKills = 0;
     this.killCount = 0;
@@ -226,6 +254,7 @@ export class AssaultZone {
     this.moveCooldownMs = 110;
     document.getElementById("hud-weapon")?.setAttribute("hidden", "");
     document.getElementById("hud-ammo")?.setAttribute("hidden", "");
+    document.getElementById("hud-recoil")?.setAttribute("hidden", "");
     document.getElementById("btn-fire")?.setAttribute("hidden", "");
     // Note: radarActive / espActive intentionally persist across missions
     // — once a player has earned the unlock, the HUD stays available.
@@ -238,7 +267,8 @@ export class AssaultZone {
     // Unfreeze any cells from a previous run.
     for (const a of [this.addrX, this.addrY, this.addrHP, this.addrAmmo,
                      this.addrMoveCooldown, this.addrWeaponDamage,
-                     this.addrWeaponCooldown, this.addrEspVisible]) {
+                     this.addrWeaponCooldown, this.addrWeaponRecoil,
+                     this.addrEspVisible]) {
       memory.setFrozen(a, false);
     }
     // Also clear freezes on the enemy struct array.
@@ -279,6 +309,23 @@ export class AssaultZone {
   enableCamouflage()  { this.enemiesCamouflaged = true; this.espActive = false; }
   disableCamouflage() { this.enemiesCamouflaged = false; }
 
+  // M17 RECOIL — when enabled with a non-zero perShot value, every
+  // fire() bumps recoilCurrent. While recoilCurrent is past the miss
+  // threshold, fire() registers the shot and consumes ammo but
+  // applies zero damage (the shot 'goes wide'). Recoil decays each
+  // frame in update(). Win condition: freeze recoilPerShot at 0 so
+  // sustained fire never builds.
+  enableRecoil(perShot = 6) {
+    this.weapon.recoilPerShot = perShot;
+    this.weapon.recoilCurrent = 0;
+    document.getElementById("hud-recoil")?.removeAttribute("hidden");
+  }
+  disableRecoil() {
+    this.weapon.recoilPerShot = 0;
+    this.weapon.recoilCurrent = 0;
+    document.getElementById("hud-recoil")?.setAttribute("hidden", "");
+  }
+
   enableWatchdog() {
     this.watchdog.enabled = true;
     this.watchdog.tickValue = 0;
@@ -299,6 +346,7 @@ export class AssaultZone {
     this.weapon.enabled = false;
     document.getElementById("hud-weapon")?.setAttribute("hidden", "");
     document.getElementById("hud-ammo")?.setAttribute("hidden", "");
+    document.getElementById("hud-recoil")?.setAttribute("hidden", "");
     document.getElementById("btn-fire")?.setAttribute("hidden", "");
   }
 
@@ -311,12 +359,26 @@ export class AssaultZone {
     this.weapon.lastFireAt = now;
     this.player.ammo -= 1;
     this.shotsFired++;
+    // Apply recoil — sustained fire builds it up. perShot is 0 in
+    // missions that don't enable recoil (M07-M15) so this is a no-op
+    // for them. M17 sets perShot non-zero.
+    this.weapon.recoilCurrent += this.weapon.recoilPerShot;
     const e = this.enemyManager.enemies.find(e => e.id === this.crosshairTargetId && e.alive);
     if (!e) return false;
     const aimbotting = memory.isFrozen(this.addrCrosshair);
+    // Miss when recoil is past threshold. The shot still fires (ammo
+    // gone, shotsFired counted) but no damage applied — the bullet
+    // 'goes wide.' Threshold of 25 means roughly 4 unmitigated shots
+    // at perShot=6 before you start missing.
+    const RECOIL_MISS_THRESHOLD = 25;
+    if (this.weapon.recoilCurrent > RECOIL_MISS_THRESHOLD) {
+      this.weapon.missesFromRecoil = (this.weapon.missesFromRecoil | 0) + 1;
+      if (this.audio) this.audio.scan();
+      return true;
+    }
     const dmg = Math.max(0, this.weapon.damage | 0);
     e.hp = Math.max(0, e.hp - dmg);
-    if (this.audio) this.audio.scan();   // a quick bleep for muzzle
+    if (this.audio) this.audio.scan();
     if (e.hp <= 0) {
       e.alive = 0;
       this.killCount++;
@@ -441,6 +503,17 @@ export class AssaultZone {
       this._updateCrosshair();
     }
 
+    // Recoil decay — drops by ~30 units per second back toward zero.
+    // Just a passive decay; no interaction with freezes.
+    {
+      const lastT = this._lastRecoilDecayAt || now;
+      const dt = Math.max(0, (now - lastT) / 1000);
+      this._lastRecoilDecayAt = now;
+      if (this.weapon.recoilCurrent > 0) {
+        this.weapon.recoilCurrent = Math.max(0, this.weapon.recoilCurrent - dt * 30);
+      }
+    }
+
     // Watchdog: bumps its tick cell on a 1.5s clock unless that cell is
     // frozen. When the cell increments, run an integrity check on the
     // player's stat addresses; any frozen player cell counts as
@@ -528,6 +601,13 @@ export class AssaultZone {
       if ($dmg) {
         const dmgLock = memory.isFrozen(this.addrWeaponDamage) ? " ⛒" : "";
         $dmg.textContent = `${this.weapon.damage}${dmgLock}`;
+      }
+      const $rcl = document.getElementById("hud-recoil-val");
+      if ($rcl) {
+        const rclLock = memory.isFrozen(this.addrWeaponRecoil) ? " ⛒" : "";
+        const cur = Math.round(this.weapon.recoilCurrent * 10) / 10;
+        const past = this.weapon.recoilCurrent > 25 ? " ✗MISS" : "";
+        $rcl.textContent = `${cur}${past}${rclLock}`;
       }
     }
   }
