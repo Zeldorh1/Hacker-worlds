@@ -86,6 +86,24 @@ void onTick() { }
 export const mission33 = {
   id: "m33",
   title: "BEHAVIORAL DETECTION",
+  alert: {
+    icon: "🎯",
+    title: "AC NOW WATCHES YOUR INPUTS",
+    body: `Patch 2.1:
+> Anti-cheat now analyzes input PATTERNS instead of just
+> bytes. Crosshair switches in <50ms = inhuman. Tracking
+> through occlusion = inhuman. Perfect hit-rate over
+> hours = statistically suspicious.
+
+Your M28 aimbot snaps to a new target EVERY frame — that's
+exactly what behavioral AC catches. Doesn't matter that
+your DLL strings are obfuscated; the BEHAVIOR gives it away.
+
+Fix: humanize. Reaction delay (180-260ms randomized).
+Jitter (sometimes pick the second-closest enemy). Same
+aim function, very different signal. AC sees normal-ish
+input distributions instead of bot perfection.`,
+  },
   brief: "Aimbot's too perfect. Add reaction delay + jitter to look human.",
   prerequisites: ["m32"],
   timeLimit: 240,

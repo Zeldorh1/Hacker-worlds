@@ -53,6 +53,26 @@ void onTick() { }
 export const mission39 = {
   id: "m39",
   title: "SEQUENCE NUMBERS",
+  alert: {
+    icon: "🔢",
+    title: "REPLAY ATTACKS DETECTED",
+    body: `Patch 2.3:
+> Server now tags every packet with a monotonic sequence
+> number and tracks the seen-set. Duplicate seqs are
+> dropped before processing.
+
+M35's replay attack (capture kill_credit, re-inject 3x to
+fake kill count) fails directly: same seq → already seen
+→ rejected.
+
+Bypass: when you re-inject a captured packet, also forge
+a NEW seq above any seen value. Server treats it as fresh.
+Naive games don't validate seq RANGES, only check the
+seen-set.
+
+This is the cat-and-mouse pattern in net-side cheats —
+each defense has a one-line bypass if you know the protocol.`,
+  },
   brief: "Server rejects duplicate seqs. Replay still works — forge fresh seqs.",
   prerequisites: ["m38"],
   timeLimit: 240,

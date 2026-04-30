@@ -830,6 +830,86 @@ body[data-mode="hub"] .violation-bar { display: none; }
 .fww-results .nopped { background: rgba(248, 113, 113, 0.08); border-left: 2px solid var(--danger); }
 .fww-results .nopped .val { color: var(--danger); }
 
+/* Mission alert — escalation cutscene shown before certain missions */
+.mission-alert[hidden] { display: none !important; }
+.mission-alert {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(6, 8, 10, 0.92);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+  animation: alert-fade-in 200ms ease-out;
+}
+@keyframes alert-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.mission-alert-card {
+  background: var(--bg-2);
+  border: 2px solid var(--danger);
+  border-radius: 6px;
+  max-width: 460px;
+  padding: 1.4rem 1.2rem;
+  box-shadow: 0 0 40px rgba(248, 113, 113, 0.3);
+  position: relative;
+}
+.mission-alert-card::before {
+  content: ""; position: absolute; inset: -1px;
+  border: 1px solid var(--danger);
+  border-radius: 6px; opacity: 0.4;
+  animation: alert-pulse 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes alert-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 0.1; transform: scale(1.02); }
+}
+.mission-alert-icon {
+  font-size: 2.2rem; text-align: center;
+  margin-bottom: 0.4rem;
+  filter: drop-shadow(0 0 8px var(--danger));
+}
+.mission-alert-tag {
+  text-align: center;
+  color: var(--danger);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  margin-bottom: 0.3rem;
+  opacity: 0.8;
+}
+.mission-alert-title {
+  text-align: center;
+  color: var(--danger);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(248, 113, 113, 0.5);
+}
+.mission-alert-body {
+  color: var(--fg);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  white-space: pre-line;
+  margin-bottom: 1.2rem;
+  padding: 0.8rem;
+  background: rgba(0, 0, 0, 0.4);
+  border-left: 2px solid var(--danger);
+  border-radius: 2px;
+}
+.mission-alert-card .primary {
+  width: 100%;
+  padding: 0.7rem;
+  background: var(--danger);
+  color: #1a0606;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.mission-alert-card .primary:hover { background: #fca5a5; }
+
 /* M23 Cheat menu */
 .cheat-menu-btn {
   position: absolute; top: 8px; left: 8px;

@@ -46,6 +46,28 @@ void onTick() { }
 export const mission46 = {
   id: "m46",
   title: "ANTI-DEBUG BYPASS",
+  alert: {
+    icon: "🐛",
+    title: "ANTI-CHEAT NOW CHECKS FOR DEBUGGERS",
+    body: `Patch 3.2 — final AC layer:
+> Game now refuses to run if any debugger is attached.
+> Calls IsDebuggerPresent every 1.2s. Three positive
+> checks in a row = forced disconnect.
+
+This is the last common AC technique. Real Windows has
+four detection vectors:
+  1. IsDebuggerPresent (kernel32 export)
+  2. PEB.BeingDebugged (single byte)
+  3. NtQueryInformationProcess(ProcessDebugPort)
+  4. Hardware breakpoint registers (DR0-DR7)
+
+Pro cheats hook all four. Sim covers #1 — same pattern.
+
+Combined with everything from M32, M33, M41, M45, you've
+covered the full surface area of common anti-cheat. No
+single layer is the answer; defending against modern AC
+is stacking ALL of these.`,
+  },
   brief: "AC checks for debuggers. Hook the call to lie. 30s clean = win.",
   prerequisites: ["m45"],
   timeLimit: 240,

@@ -49,6 +49,27 @@ void onTick() { }
 export const mission38 = {
   id: "m38",
   title: "HMAC PACKETS",
+  alert: {
+    icon: "🔐",
+    title: "PACKETS NOW CRYPTOGRAPHICALLY SIGNED",
+    body: `Patch 2.2:
+> Every outgoing packet now signed with HMAC derived
+> from a per-session key. Server rejects any packet
+> whose signature doesn't match.
+
+M31's craft-amount=999 mutates the packet AFTER it was
+signed → hmac stale → packet rejected → no damage.
+
+Bypass: the session key is in YOUR client's memory (your
+own client uses it to sign). Find it via the bound cell
+'session.hmac_key', mutate the packet in your hook, then
+re-compute the HMAC and attach. Server validator now
+accepts the new sig.
+
+Real games do this. Bypassing requires finding the key,
+which means sufficient memory access — which is what the
+prior 30 missions taught.`,
+  },
   brief: "Server signs every packet. Find the key, re-sign your craft.",
   prerequisites: ["m37"],
   timeLimit: 240,

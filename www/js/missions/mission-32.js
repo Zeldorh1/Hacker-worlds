@@ -74,6 +74,24 @@ void onTick() { }
 export const mission32 = {
   id: "m32",
   title: "SIGNATURE SCAN",
+  alert: {
+    icon: "🔍",
+    title: "KERNEL ANTI-CHEAT DEPLOYED",
+    body: `Major patch — 2.0:
+> New 'kernel-mode protection layer' periodically scans
+> loaded DLL bytes for known cheat signatures (suspicious
+> strings: 'Aimbot', 'ESP', 'Wallhack', etc).
+> 8 violations = automatic ban.
+
+Your DLLs have been shipping with plaintext labels like
+'Aimbot' and 'Wallhack ESP' — instant fail under the new
+scan. Time to rename. Functions stay, names get mangled
+into harmless placeholders ('Feature_A', 'Visual_X').
+
+This is exactly why pro cheats ship with XOR-encrypted
+strings — the same code under a name AC has no signature
+for.`,
+  },
   brief: "Anti-cheat sees obvious labels. Rename them. Keep the cheats working.",
   prerequisites: ["m31"],
   timeLimit: 240,

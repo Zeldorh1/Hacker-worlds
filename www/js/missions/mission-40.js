@@ -63,6 +63,24 @@ void onTick() { }
 export const mission40 = {
   id: "m40",
   title: "SPECTATOR AWARENESS",
+  alert: {
+    icon: "👁",
+    title: "ADMIN SPECTATING NOW VISIBLE TO CLIENT",
+    body: `Patch 2.4:
+> When an admin or trusted player joins your view to
+> watch for cheats, the server notifies your client via
+> a 'spectator_joined' packet. (Useful API leak — the
+> dev probably meant this for the legitimate spectator
+> UI.)
+
+Real cheats use this for OPSEC: hook recv for the event,
+flip a 'being watched' flag, conditionally disable visual
+cheats while admin is watching. Memory cheats stay on
+(admin can't see those); only DRAWN stuff hides.
+
+You did all this work to evade detection. Don't get caught
+on a spectator's screen showing them your ESP boxes.`,
+  },
   brief: "Detect spectators. Auto-hide visual cheats while they're watching.",
   prerequisites: ["m39"],
   timeLimit: 240,

@@ -40,6 +40,24 @@ void onTick() { }
 export const mission37 = {
   id: "m37",
   title: "MOVEMENT VALIDATION",
+  alert: {
+    icon: "🏃",
+    title: "SERVER NOW VALIDATES POSITION",
+    body: `Hotfix 2.1.3:
+> Server checks every position-update packet against
+> the maximum velocity your character can produce.
+> Speed-hack moves above the threshold get snapped back
+> to the last valid position.
+
+M12's max-out cooldown=30 generates moves the validator
+rejects instantly. tilesMoved barely climbs because each
+move undoes itself.
+
+Fix: don't max-out. Run UNDER the threshold. 'Legal speed
+hack' — fast enough to feel cheating, slow enough the
+validator tolerates. Same pattern as bunny-hop / strafe-
+jump in real shooters.`,
+  },
   brief: "Server snaps back impossible moves. Set speed UNDER the threshold.",
   prerequisites: ["m36"],
   timeLimit: 240,

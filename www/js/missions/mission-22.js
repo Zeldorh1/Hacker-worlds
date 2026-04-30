@@ -29,6 +29,25 @@ import { codeSegment } from "../code-segment.js";
 export const mission22 = {
   id: "m22",
   title: "NOP THE BLEED",
+  alert: {
+    icon: "🩹",
+    title: "WATCHDOG DETECTING FREEZES FAST",
+    body: `Mid-patch hotfix — 1.0.5:
+> Anti-tamper now spots cell freezes within 4 seconds.
+> M02-style 'freeze HP at 100' fails before you can
+> finish the room.
+
+The watchdog watches CELLS, not CODE. So change the
+problem: don't fight over the cell. Reach into the game's
+.text segment, find the instruction that WRITES damage,
+and replace it with NOP bytes.
+
+The instruction never runs → no decrement happens → no
+frozen cell to detect. Anti-tamper has nothing to scan.
+
+This is the leap from data hacks to code hacks. CE call
+this 'Replace with code that does nothing.'`,
+  },
   brief: "Watchdog catches freezes. Patch the bleed code itself instead.",
   prerequisites: ["m21"],
   timeLimit: 240,

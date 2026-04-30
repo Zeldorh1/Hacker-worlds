@@ -60,6 +60,30 @@ void onTick() { }
 export const mission41 = {
   id: "m41",
   title: "PROCESS HIDING",
+  alert: {
+    icon: "🛡",
+    title: "HACKSHIELD INTRODUCED — GAME WON'T LAUNCH",
+    body: `🚨 EMERGENCY PATCH — 3.0:
+> 'HackShield' anti-cheat now runs ALONGSIDE the game.
+> The moment Cheat Engine is detected on the system,
+> the game force-closes. Renaming the .exe doesn't help
+> — HackShield checks file hashes, window titles, loaded
+> modules, IAT signatures.
+
+This is the wall every cheater eventually hits. You can't
+just rename your tool — HackShield knows the bytes.
+
+Fix: hide the tool from the OS process list entirely.
+Hook NtQuerySystemInformation (Windows process-list call)
+in your DLL, filter your tool out of the list before
+HackShield walks it. AC asks the OS what's running, OS
+sends a list MINUS your scanner, AC sees nothing
+suspicious, game stays open.
+
+Same arms race that produced stealth-CE forks, VMProtect
+wrappers, and 'run CE in a VM' workflows. You're entering
+the ring of the actual fight now.`,
+  },
   brief: "AC scans the OS process list for your tool. Hook the enum to hide it.",
   prerequisites: ["m40"],
   timeLimit: 240,

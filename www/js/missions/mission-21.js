@@ -48,6 +48,26 @@ void onTick() {
 export const mission21 = {
   id: "m21",
   title: "INTERNAL CHEAT",
+  alert: {
+    icon: "💉",
+    title: "EXTERNAL TOOLS GETTING FLAGGED",
+    body: `Word from the underground: anti-cheat is starting to
+spot 'anomalous external processes' attaching handles to
+the game.
+
+Every cheat from M01-M20 has been EXTERNAL — a separate
+program (the Scanner) reaching into the game's memory from
+outside. Every read/write is a syscall, easy for AC to
+spot.
+
+Fix: go INTERNAL. Write a piece of code that runs INSIDE
+the game's process. No syscall, no cross-process handle.
+Same memory access as the game itself — orders of magnitude
+faster, much harder to detect.
+
+Welcome to DLL injection. The next several missions are all
+about making your code live inside the game.`,
+  },
   brief: "Write a DLL. Compile. Inject. Survive bleed via in-process HP lock.",
   prerequisites: ["m20"],
   timeLimit: 240,

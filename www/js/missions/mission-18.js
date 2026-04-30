@@ -25,6 +25,24 @@ import { memory } from "../sim-memory.js";
 export const mission18 = {
   id: "m18",
   title: "SERVER AUTHORITY",
+  alert: {
+    icon: "🌐",
+    title: "GAME WENT MULTIPLAYER",
+    body: `Game is online now. The single-player rules just
+broke.
+
+> The server holds the authoritative copy of your HP.
+> Your client renders what the server tells it.
+> Local memory edits become COSMETIC ONLY — your screen
+> shows whatever you wrote, but the server's number
+> still ticks down with damage. When server's HP hits 0
+> you respawn regardless of your local freeze.
+
+Everything you've learned still works for the visible HUD.
+But to actually NOT die, you need to find the local cache
+of the server's state and freeze that. Different cell, same
+freeze pattern.`,
+  },
   brief: "Local HP freeze is cosmetic now. Find the cell the server actually checks.",
   prerequisites: ["m17"],
   timeLimit: 240,

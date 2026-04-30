@@ -23,6 +23,22 @@ export const mission06 = {
   id: "m06",
   title: "MEMORY SEAL",
   brief: "Target runs a CRC watchdog. Pin it before you touch anything else.",
+  alert: {
+    icon: "⚠",
+    title: "ANTI-TAMPER PATCH SHIPPED",
+    body: `Patch notes — 1.0.4:
+> Added an integrity watchdog that scans player stat
+> cells every 1.5 seconds. Frozen cells now trigger
+> violations. Three accumulated = forced disconnect.
+
+Translation: the easy M01-M05 freeze workflow stops working.
+You can't outrun the scan. You have to find the watchdog
+itself in memory and freeze IT first — pin the tick cell so
+the scan never advances.
+
+This is the first real anti-cheat fight in the curriculum.
+VAC, EAC, BattlEye all ship some version of this scan.`,
+  },
   prerequisites: ["m05"],
   timeLimit: 130,
   watchdog: true,

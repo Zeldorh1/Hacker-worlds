@@ -48,6 +48,22 @@ void onTick() { }
 export const mission45 = {
   id: "m45",
   title: "MODULE HIDING",
+  alert: {
+    icon: "🧩",
+    title: "AC NOW WALKS LOADED MODULES TOO",
+    body: `Patch 3.1:
+> HackShield extended. Beyond OS-level process scanning,
+> it now also walks the game's OWN loaded-module list
+> (EnumProcessModules) looking for injected DLLs.
+
+M41 hid your TOOL from the OS. M45 hides your DLL from
+the GAME'S OWN module list — different layer, different
+list, same hook pattern.
+
+A complete cheat needs BOTH. Real anti-cheat queries both
+layers; missing either one is a detection vector. Combined
+they give full enumeration-layer stealth.`,
+  },
   brief: "AC walks the in-process module list. Hide your DLL there too.",
   prerequisites: ["m44"],
   timeLimit: 240,

@@ -42,6 +42,35 @@ function showToast(text, ms = 2600) {
   showToast._t = setTimeout(() => { el.hidden = true; }, ms);
 }
 
+// Show a mission's escalation alert (set via m.alert) before its
+// gameplay begins. Returns a Promise that resolves when the player
+// taps ACKNOWLEDGE. Designed to look like an in-fiction patch
+// notification — frames each new defense as something the dev team
+// just shipped, so the curriculum reads as an arms race rather than
+// a grab-bag of techniques.
+function showMissionAlert(alert) {
+  return new Promise((resolve) => {
+    const $alert = document.getElementById("mission-alert");
+    const $icon  = document.getElementById("mission-alert-icon");
+    const $title = document.getElementById("mission-alert-title");
+    const $body  = document.getElementById("mission-alert-body");
+    const $ack   = document.getElementById("btn-mission-alert-ack");
+    if (!$alert) { resolve(); return; }
+    $icon.textContent  = alert.icon  || "⚠";    // ⚠
+    $title.textContent = alert.title || "GAME UPDATE DETECTED";
+    $body.textContent  = alert.body  || "";
+    $alert.hidden = false;
+    audio.fail && audio.fail();
+    const onAck = () => {
+      $ack.removeEventListener("click", onAck);
+      $alert.hidden = true;
+      audio.tap();
+      resolve();
+    };
+    $ack.addEventListener("click", onAck);
+  });
+}
+
 function setMode(mode) { document.body.dataset.mode = mode; }
 function showHub() {
   document.getElementById("view-hub").classList.add("view--active");
@@ -390,7 +419,7 @@ async function boot() {
     document.getElementById("fail-overlay").setAttribute("hidden", "");
   }
 
-  function launchMission(id) {
+  async function launchMission(id) {
     const m = MISSIONS_BY_ID[id];
     if (!m) return;
     audio.tap();
@@ -398,6 +427,13 @@ async function boot() {
     // If a mission is already running, tear it down first.
     clearActiveMission();
     hideFailOverlay();
+
+    // Escalation alert — frames the next mission as a patch the
+    // 'dev team' just shipped. Wait for the player to acknowledge
+    // before starting the mission proper.
+    if (m.alert) {
+      await showMissionAlert(m.alert);
+    }
 
     activeId = id;
     setMode("mission");
