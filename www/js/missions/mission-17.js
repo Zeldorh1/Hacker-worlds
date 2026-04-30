@@ -41,7 +41,7 @@ export const mission17 = {
       min: 4,
       when: ({ target, scannerState, watchSize }) =>
         (target.weapon.missesFromRecoil | 0) >= 2 && watchSize === 0 && !scannerState.browseBase,
-      say: "Recoil isn't in the player struct — but the pointer to the WEAPON struct is. Find your HP first (M2 / M16 style), then BROWSE MEMORY on it. Look at +0x14: that's a huge number, but it's actually an ADDRESS. That's the weapon pointer.",
+      say: "Recoil isn't in the player struct — but the pointer to the WEAPON struct is. Find your HP (M2 / M16 style), then BROWSE MEMORY on it. Look at +0x14: a huge number (8+ digits in decimal). It's not a stat — it's an ADDRESS. The browse view shows its hex form next to the decimal, plus a → follow button.",
     },
     {
       id: "follow-the-pointer",
@@ -50,7 +50,7 @@ export const mission17 = {
         (target.weapon.missesFromRecoil | 0) >= 2 &&
         scannerState.browseBase &&
         !memory.isFrozen(memory.addressOfLabel("weapon.recoilPerShot")),
-      say: "See that giant address at +0x14? Type it into BROWSE MEMORY and Browse again. You'll see three small ints clustered: 25 = damage (M11), 320 = cooldown (M14), and a third number — that's recoilPerShot. + watch it.",
+      say: "Tap the → follow button on the +0x14 row. Browse jumps to the weapon struct. You'll see three small ints clustered: 25 = damage (M11), 320 = cooldown (M14), and a third number — that's recoilPerShot. + watch it.",
     },
     {
       id: "freeze-zero",

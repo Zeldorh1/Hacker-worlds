@@ -309,16 +309,44 @@ export class Scanner {
       rows.push({ addr: a, value, offStr, isBase: off === 0 });
     }
     this.lastBrowseBase = padded;
-    const html = rows.map(r => `
-      <li class="row-in${r.isBase ? " browse-base" : ""}">
+    // A value > ~4 billion is too big to be any normal stat
+    // (HP, ammo, position, cooldown) — it's almost certainly a
+    // POINTER. Show its hex form alongside the decimal and offer
+    // a "→ follow" button that browses to that address. This is
+    // what makes M17's player-struct → weapon-struct chain
+    // walkable without having to mentally convert decimals to hex.
+    const POINTER_THRESHOLD = 0x100000000;   // 4_294_967_296
+    const formatPointer = (v) => {
+      if (typeof v !== "number" || !Number.isFinite(v)) return null;
+      if (Math.abs(v) < POINTER_THRESHOLD) return null;
+      return SimMemory.formatAddr(v);
+    };
+    const html = rows.map(r => {
+      const ptrAddr = formatPointer(r.value);
+      const valDisplay = ptrAddr
+        ? `${r.value} <em class="ptr-hex">${ptrAddr}</em>`
+        : `${r.value}`;
+      const followBtn = ptrAddr
+        ? `<button class="add follow" data-follow="${ptrAddr}">→ follow</button>`
+        : "";
+      return `
+      <li class="row-in${r.isBase ? " browse-base" : ""}${ptrAddr ? " browse-ptr" : ""}">
         <span class="addr">${r.offStr}  ${r.addr}</span>
-        <span class="val">${r.value}</span>
+        <span class="val">${valDisplay}</span>
+        ${followBtn}
         <button class="add" data-addr="${r.addr}">+ watch</button>
-      </li>
-    `).join("");
+      </li>`;
+    }).join("");
     this.$browseResults.innerHTML = html;
     this.$browseResults.querySelectorAll("button.add").forEach(b => {
-      b.addEventListener("click", () => this.addToWatchlist(b.dataset.addr));
+      if (b.dataset.follow) {
+        b.addEventListener("click", () => {
+          if (this.$browseTarget) this.$browseTarget.value = b.dataset.follow;
+          this.browseMemory();
+        });
+      } else {
+        b.addEventListener("click", () => this.addToWatchlist(b.dataset.addr));
+      }
     });
     this.$browseStatus.textContent = `Browsing ${padded}: ${rows.length} cells around it.`;
     if (this.audio) this.audio.scan();
