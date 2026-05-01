@@ -4773,6 +4773,158 @@ while (running) {
       examples will land harder once you've built the simulator equivalents.</p>
     `,
   },
+
+  {
+    id: "auto-injector-workflow",
+    title: "Auto-Injector Workflow (Extreme Injector, Process Hacker)",
+    brief: "What clicking 'Inject' in those tools actually does. Tier 1 of the injector ladder before you write your own.",
+    body: `
+      <h2>The injector ladder</h2>
+      <p>Three tiers, each one harder for anti-cheats to detect:</p>
+      <ol>
+        <li><strong>Auto-injector tools</strong> (this article) — Extreme
+        Injector, Process Hacker, Cheat Engine's "Inject DLL" feature.
+        You provide the .dll and the target process; the tool does the
+        rest. Zero code required.</li>
+        <li><strong>Your own injector</strong> (next article) — 80 lines
+        of C++ that does what auto-injector tools do internally. You
+        understand every step.</li>
+        <li><strong>Manual mapper</strong> (third article) — 200 lines
+        of C++ that bypasses the OS loader entirely. Production tier.</li>
+      </ol>
+
+      <h2>Extreme Injector — what it actually does</h2>
+      <p>Extreme Injector's "Inject" button runs this code internally
+      (sanitized to remove the GUI noise):</p>
+
+      <pre><code>// Pseudo-code based on the injector's actual flow
+DWORD pid = find_process_by_name(target_process);
+HANDLE h = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+
+// 1. Allocate memory in target for the DLL filename string
+LPVOID remote_path = VirtualAllocEx(h, NULL, MAX_PATH,
+                                     MEM_COMMIT | MEM_RESERVE,
+                                     PAGE_READWRITE);
+
+// 2. Copy the path into target's memory
+WriteProcessMemory(h, remote_path, dll_path,
+                   strlen(dll_path) + 1, NULL);
+
+// 3. Get LoadLibraryA's address (same in target as in us)
+HMODULE k32 = GetModuleHandleA("kernel32.dll");
+LPVOID load_lib = GetProcAddress(k32, "LoadLibraryA");
+
+// 4. Spawn a thread in target that calls LoadLibraryA(remote_path)
+HANDLE thread = CreateRemoteThread(h, NULL, 0,
+                                    (LPTHREAD_START_ROUTINE)load_lib,
+                                    remote_path, 0, NULL);
+WaitForSingleObject(thread, INFINITE);
+
+// 5. Cleanup
+VirtualFreeEx(h, remote_path, 0, MEM_RELEASE);
+CloseHandle(thread);
+CloseHandle(h);</code></pre>
+
+      <p>Five Windows API calls. Every "free DLL injector" tool on the
+      internet is a UI on top of this same five-call sequence.</p>
+
+      <h2>The popular tools, ranked by what they add</h2>
+
+      <table>
+        <thead><tr><th>Tool</th><th>Beyond the 5 API calls</th><th>Detection profile</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Process Hacker</strong></td>
+            <td>Process management UI; "inject DLL" is a small feature
+            tucked in the right-click menu. No anti-AC bells.</td>
+            <td>Detected easily — generic LoadLibrary injection</td>
+          </tr>
+          <tr>
+            <td><strong>Extreme Injector</strong></td>
+            <td>UI for picking process + DLL. Adds bells:
+            "manual map" toggle, "erase PE header" toggle, "stealth"
+            re-implementation of CreateRemoteThread via NtCreateThreadEx.</td>
+            <td>Lower than Process Hacker; the manual-map mode bypasses
+            module enumeration.</td>
+          </tr>
+          <tr>
+            <td><strong>Xenos</strong></td>
+            <td>Multiple injection modes: standard, ManualMap, ThreadHijack.
+            Per-mode anti-detection options (PE header zero, IAT randomize).</td>
+            <td>Best of the public injectors. Manual-map mode beats
+            most user-mode anti-cheats.</td>
+          </tr>
+          <tr>
+            <td><strong>Cheat Engine "Inject DLL"</strong></td>
+            <td>Just the standard 5-call sequence. CE itself is the
+            scanner; the inject feature is incidental.</td>
+            <td>Trivial detection.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Why M76 is "use a tool" before M77 "write your own"</h2>
+      <p>If you've never injected a DLL, sit down with Process Hacker
+      first. You'll see:</p>
+      <ul>
+        <li>The DLL appears in the target's loaded modules (you can
+        verify visually in Process Hacker's Modules tab)</li>
+        <li>DllMain runs immediately on attach</li>
+        <li>You can <strong>unload</strong> from the same UI for testing
+        iteration</li>
+      </ul>
+      <p>Then writing the same five calls yourself (next article) feels
+      grounded — you've already seen the result, you're just removing
+      the GUI.</p>
+
+      <h2>Anti-cheat reality check</h2>
+      <p>If you're targeting AssaultCube or any old/dead game with no
+      anti-cheat, auto-injectors work fine. If you're targeting a live
+      multiplayer game with anti-cheat (which is mostly out of scope for
+      this curriculum since we work against the simulator), the
+      auto-injector path is detected the moment your DLL touches DllMain.
+      That's why M77/M78 exist — for the educational understanding of
+      how cheat devs got around it.</p>
+
+      <h2>How to verify your auto-injection worked (without injecting)</h2>
+      <p>Since the simulator can't actually accept a real DLL, the
+      "verification" you'd run against a real game looks like:</p>
+      <ol>
+        <li>Pick a tiny DLL whose DllMain logs to OutputDebugString.</li>
+        <li>Open DebugView (Sysinternals).</li>
+        <li>Run your injector against, say, Notepad.exe.</li>
+        <li>You should see the OutputDebugString line in DebugView.</li>
+        <li>Process Hacker → right-click Notepad → Properties → Modules
+        tab — your DLL should be in the list.</li>
+      </ol>
+      <p>That's the whole inject + verify cycle for educational
+      experimentation. Use Notepad / Calculator as targets — no AC,
+      easy reset by killing the process.</p>
+
+      <h2>Common gotchas</h2>
+      <ul>
+        <li><strong>x86 vs x64 mismatch</strong>: a 32-bit DLL can't
+        inject into a 64-bit process. Match your DLL's build target to
+        the game's bitness. Process Hacker tells you which is which.</li>
+        <li><strong>Permissions</strong>: if the target runs as Admin,
+        your injector must too. Right-click → Run as administrator.</li>
+        <li><strong>Path encoding</strong>: <code>LoadLibraryA</code>
+        wants ANSI; if your DLL path contains Unicode characters, use
+        <code>LoadLibraryW</code> + <code>WriteProcessMemory</code>
+        with the wide-char buffer. (Most modern injectors detect and
+        switch automatically.)</li>
+        <li><strong>WaitForSingleObject hangs</strong>: if DllMain
+        deadlocks (e.g., LoadLibrary inside DllMain — DON'T do that),
+        your injector hangs forever on WaitForSingleObject. Add a
+        timeout in production code.</li>
+      </ul>
+
+      <h2>What you can do now</h2>
+      <p>You can use any auto-injector to load a DLL into a non-protected
+      process. Next article: write the same logic yourself in 80 lines —
+      every API call exposed, every step visible.</p>
+    `,
+  },
 ];
 
 export class Library {

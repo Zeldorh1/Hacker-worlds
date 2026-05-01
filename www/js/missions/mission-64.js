@@ -82,7 +82,7 @@ export const mission64 = {
   id: "m64",
   title: "BYTE PATCHING",
   brief: "Some checks aren't in data — they're in code. Patch the byte at the instruction's address.",
-  prerequisites: ["m17"],
+  prerequisites: ["m17", "m24"],
   timeLimit: 240,
   dll: true,
   dllTemplate: TEMPLATE,

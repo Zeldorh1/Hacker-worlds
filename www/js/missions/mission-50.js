@@ -66,7 +66,7 @@ export const mission50 = {
   id: "m50",
   title: "LITHTECH ENGINE CALLS",
   brief: "Stop just READING the game's memory. Start CALLING its own functions.",
-  prerequisites: ["m48"],
+  prerequisites: ["m48", "m24"],
   timeLimit: 240,
   dll: true,
   dllTemplate: TEMPLATE,

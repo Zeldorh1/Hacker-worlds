@@ -62,6 +62,8 @@ import { mission66 } from "./mission-66.js";
 import { mission70 } from "./mission-70.js";
 import { mission71 } from "./mission-71.js";
 import { mission72 } from "./mission-72.js";
+import { mission73 } from "./mission-73.js";
+import { mission74 } from "./mission-74.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
@@ -70,15 +72,27 @@ import { mission72 } from "./mission-72.js";
 // its file was added later. Internal IDs (m47 etc) never change, so
 // saved progress in localStorage is preserved across reorderings.
 //
-// CURRICULUM TRACKS:
-//   TRACK 1 — FOUNDATION (find addresses):  M01-M08 + base discovery
-//   TRACK 2 — FEATURES (build cheats with the addresses you found):
-//             everything from M09 onward — DLL code patterns, render
-//             hooks, packet hooks, byte patching, engine calls,
-//             multi-field packets, server-trust exploits
-//   TRACK 3 — SYSTEMS (deeper systems programming): mostly Codex
-//             articles — Windows API, PE format, manual mapping,
-//             D3D pipeline, IDA/x64dbg/ReClass workflows
+// CURRICULUM TRACKS (build-on-each-other order):
+//
+//   TRACK 1   — FOUNDATION (Cheat Engine workflow, no DLL needed):
+//               M01-M08 scanning, M48 base discovery
+//   TRACK 1B  — CELL FREEZES (still scanner / CE-style):
+//               M09-M20 HP/ammo/recoil/position cheats
+//   TRACK 1C  — DLL INTRODUCTION:
+//               M21 internal cheat, M22 watchdog, M23 cheat menu,
+//               M24 DLL anatomy, M47 DLL walkthrough
+//   TRACK 4   — BUILD YOUR OWN TRAINER (capstone arc, DLL-based):
+//               M70-M72+ mini-trainer stages — lands here so the
+//               player has DLL fundamentals before authoring one
+//   TRACK 2   — ADVANCED FEATURES (all DLL-based, build on M70-M72):
+//               Render hooks (M25/M26/M55/M56),
+//               Engine calls + magic packets (M50/M51/M66/M52/M53),
+//               Byte patching (M64),
+//               Network exploits (M27-M40, M54, M58, M59),
+//               Frame audit (M49),
+//               Engine API abuse + ghost mode (M41-M46, M65)
+//   TRACK 3   — SYSTEMS (Codex articles): Windows API, PE format,
+//               manual mapping, D3D pipeline, IDA/x64dbg/ReClass
 export const MISSIONS = [
   // ============================================================
   // TRACK 1 — FOUNDATION: finding addresses (Cheat Engine workflow)
@@ -88,8 +102,44 @@ export const MISSIONS = [
   mission48,    // STATIC BASE DISCOVERY — module + offset workflow
 
   // ============================================================
-  // TRACK 2 — FEATURES: writing code that USES those addresses
+  // TRACK 1B — CELL FREEZES: pure scanner-side cheats
   // ============================================================
+  mission09, mission10, mission11, mission12,
+  mission13, mission14, mission15,
+  mission16, mission17,
+  mission18, mission19, mission20,
+
+  // ============================================================
+  // TRACK 1C — DLL INTRODUCTION
+  // ============================================================
+  mission21,    // INTERNAL CHEAT — first DLL exposure
+  mission22,    // WATCHDOG (anti-cheat freeze detection)
+  mission23,    // CHEAT MENU
+  mission24,    // DLL ANATOMY (canonical intro)
+  mission47,    // DLL ANATOMY WALKTHROUGH (line-by-line C++)
+
+  // ============================================================
+  // TRACK 4 — BUILD YOUR OWN TRAINER: capstone arc lands here,
+  // right after the DLL intro, since 'author your own trainer' is
+  // the natural next step once you understand DLLs.
+  // ============================================================
+  mission70,    // STAGE 1: Single-address freeze (your first cheat)
+  mission71,    // STAGE 2: Add a toggle (register_cheat menu entry)
+  mission72,    // STAGE 3: Multi-feature menu (4 toggles in one cheat)
+  mission73,    // STAGE 4: DIY canvas menu (render hook + input hook)
+  mission74,    // STAGE 5: Persist config across re-injects (localStorage)
+  // M75-M79: codex articles for auto-injector, write-your-own injector,
+  //          manual mapper, external trainer capstone — see Library
+
+  // ============================================================
+  // TRACK 2 — ADVANCED FEATURES: now we have DLLs, layer on the
+  // technique categories.
+  // ============================================================
+  // -- Render-side cheats (extends M26 render hook)
+  mission25, mission26,
+  mission55,    // CHAMS + SKELETON ESP — render-hook variants beyond M26
+  mission56,    // WIREFRAME WALLS — render-state manipulation
+
   // -- Engine function calls + server-trust exploits
   mission50,    // LITHTECH ENGINE CALLS — typedef + ADDR cast + invoke
   mission51,    // SERVER-TRUSTED COMMAND IDS — single-byte magic packets
@@ -97,27 +147,11 @@ export const MISSIONS = [
   mission52,    // PATCH-RENAME ANTI-PATTERN — Nexon's failed fix strategy
   mission53,    // (DEFENSIVE) AUTH ON PRIVILEGED HANDLERS — the only correct fix
 
-  // -- Cell-level cheats (HP, ammo, weapons)
-  mission09,
-  mission10, mission11, mission12,
-  mission13, mission14, mission15,
-  mission16, mission17,
+  // -- Byte patching
   mission64,    // BYTE PATCHING — \x90 NOP / \xC3 RET, the NORECOIL/NORELOAD pattern
 
-  // -- Player-state cheats (death/respawn/position)
-  mission18, mission19, mission20,
-
-  // -- Anti-cheat awareness + DLL fundamentals
-  mission21, mission22, mission23, mission24,
-  mission47,    // DLL ANATOMY — annotated C++ skeleton
-  mission25, mission26,
-
-  // -- Render-side cheats (ESP variants)
-  mission55,    // CHAMS + SKELETON ESP — render-hook variants beyond M26
-  mission56,    // WIREFRAME WALLS — render-state manipulation
-  mission27, mission28, mission29,
-
   // -- Network / server-state cheats
+  mission27, mission28, mission29,
   mission30, mission31, mission32,
   mission33, mission34, mission35, mission36,
   mission37,
@@ -132,16 +166,6 @@ export const MISSIONS = [
   mission41, mission42, mission43,
   mission65,    // GHOST MODE — FLAG_SOLID + camera-update RET-patch
   mission44, mission45, mission46,
-
-  // ============================================================
-  // TRACK 4 — BUILD YOUR OWN TRAINER: chained capstone arc.
-  // Each mission grows the same trainer template. By the end the
-  // player has authored a multi-feature toggle-menu trainer.
-  // ============================================================
-  mission70,    // STAGE 1: Single-address freeze (your first cheat)
-  mission71,    // STAGE 2: Add a toggle (register_cheat menu entry)
-  mission72,    // STAGE 3: Multi-feature menu (4 toggles in one cheat)
-  // M73-M74: DIY canvas menu, save/load — coming next batch
 
   // ============================================================
   // TRACK 3 — SYSTEMS: see Codex for Windows API, PE format,
