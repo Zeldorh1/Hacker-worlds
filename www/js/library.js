@@ -4925,6 +4925,570 @@ CloseHandle(h);</code></pre>
       every API call exposed, every step visible.</p>
     `,
   },
+
+  {
+    id: "modern-anti-cheat-stack",
+    title: "Modern Anti-Cheat: Layered Detection Stack",
+    brief: "Why one bypass isn't enough. The 7-stage AC pipeline real games run, and why time favors the defenders.",
+    body: `
+      <h2>Why M6's mental model is incomplete</h2>
+      <p>M6 taught you to find ONE watchdog, freeze it, and walk free. That
+      worked great for a 2008-era anti-cheat. Modern AAA anti-cheats don't run
+      one watchdog. They run a layered detection stack — boot, login, lobby,
+      in-game, heartbeat, post-match, and stats-based — every layer
+      independent. Bypassing one gets you nothing if a different one fires
+      30 minutes later.</p>
+
+      <p>This article is the strategic-layer reading you need before you
+      think you've "beaten" any commercial AC. Spoiler: you haven't.</p>
+
+      <h2>The 7-stage detection pipeline</h2>
+
+      <h3>Stage 1: Boot / pre-launch</h3>
+      <p>The AC driver loads when Windows boots — long before you launch the
+      game. It checks for things you can't see at runtime:</p>
+      <ul>
+        <li>Kernel module enumeration (any unsigned drivers loaded?)</li>
+        <li>TPM attestation (hardware-backed identity)</li>
+        <li>Hypervisor presence (running in a VM is suspicious)</li>
+        <li>BIOS / UEFI state</li>
+        <li>HVCI status (Memory Integrity setting)</li>
+      </ul>
+      <p><strong>Real example: Riot Vanguard.</strong> Loads at OS boot. If it
+      detects a tampered environment, the game refuses to start later — period.
+      The check happened hours before you opened the launcher.</p>
+
+      <h3>Stage 2: Login / session establishment</h3>
+      <p>You log into your account. The AC submits a "machine signature" to
+      the server — a fingerprint of your install:</p>
+      <ul>
+        <li>Hash of every loaded module in the game process</li>
+        <li>Hardware fingerprint (HWID)</li>
+        <li>Driver list, anti-cheat self-hash</li>
+        <li>List of running processes</li>
+      </ul>
+      <p>Server validates against a known-bad database. <strong>Real example:
+      EAC and BattlEye both submit this report before issuing a session
+      token.</strong> Fail this check and you can't log in at all.</p>
+
+      <h3>Stage 3: Lobby / menu</h3>
+      <p>You're past login but haven't joined a match yet. AC keeps scanning:</p>
+      <ul>
+        <li>Periodic memory scans for known cheat signatures (string scan,
+        AOB scan)</li>
+        <li>File hash checks of game executable + DLLs</li>
+        <li>Debugger presence (M46 territory)</li>
+        <li>Foreign window enumeration (overlay detection)</li>
+        <li>Driver list re-check</li>
+      </ul>
+      <p>Different from in-game runtime checks because the user expects more
+      lag in the menu. ACs front-load expensive scans here.</p>
+
+      <h3>Stage 4: In-game runtime</h3>
+      <p>This is what the curriculum has simulated up to M65:</p>
+      <ul>
+        <li>Tick counters (M22)</li>
+        <li>Render-hook detection (M49 frame audit)</li>
+        <li>Packet validation (M37, M38, M39)</li>
+        <li>Behavioral analysis (M33)</li>
+        <li>Module enumeration (M45)</li>
+        <li>IsDebuggerPresent loops (M46)</li>
+      </ul>
+      <p>Most cheat tutorials online focus only on this layer because it's
+      the most visible. It's also the easiest layer to bypass — and the
+      least important to the AC team.</p>
+
+      <h3>Stage 5: Heartbeat</h3>
+      <p>Every 15-60 seconds, the AC client sends an encrypted report to the
+      AC server containing:</p>
+      <ul>
+        <li>Current loaded module list</li>
+        <li>Recent scan results</li>
+        <li>Anomaly flags (anything sus that hasn't yet hit the threshold)</li>
+        <li>Process tree changes</li>
+      </ul>
+      <p>The encryption is rotated, the protocol is obfuscated, and the
+      heartbeat itself uses anti-tamper checks. <strong>Vanguard, EAC,
+      BattlEye all do this.</strong> Stop sending heartbeats and the server
+      kicks you. Send fake heartbeats and the server detects the
+      protocol/timing anomaly.</p>
+
+      <h3>Stage 6: Match-end / demo analysis</h3>
+      <p>Match ends. You leave. The server keeps your demo. <strong>This is
+      where most VAC bans actually happen.</strong></p>
+      <p>The AC server replays your demo (or its compressed equivalent) and
+      runs analysis the live game can't afford to:</p>
+      <ul>
+        <li>Aim curve analysis: was every flick a perfect bezier? Humans
+        have hand-tremor; cheats often don't unless smoothed (M62)</li>
+        <li>Prefire angles: did you pre-aim a corner before any visual
+        information about the enemy was on your screen? Wallhack signal</li>
+        <li>Reaction time distribution: humans average ~200ms reaction;
+        triggerbots are <50ms with too-low variance</li>
+        <li>Hitbox correlation: did your shots cluster on hitboxes
+        impossibly tight given your kovaak's stats? Aimbot signal</li>
+        <li>Movement deltas: did you move through a wall for 3 frames? M43
+        territory</li>
+      </ul>
+      <p><strong>VAC ban waves work because of this layer.</strong> You can
+      cheat in 50 matches over 2 weeks, see no immediate ban, and then get
+      banned all at once after Valve's batch run. Same for Faceit, ESEA,
+      Esportal — they all do post-match analysis.</p>
+
+      <h3>Stage 7: Trust-score matchmaking</h3>
+      <p>Even if your account passes every check above, your matchmaking pool
+      adapts:</p>
+      <ul>
+        <li>New accounts go into "low trust" lobbies with other suspicious
+        accounts and lots of cheaters</li>
+        <li>Accounts with anomalous stats (impossibly high HS%, sudden skill
+        jumps) get flagged for human review</li>
+        <li>Phone-number-required accounts (Valorant) reject low-trust
+        accounts entirely</li>
+      </ul>
+      <p>This is the most insidious layer because there's nothing for the
+      cheat to "bypass" — it's a probabilistic placement system based on
+      gameplay patterns, not technical detection.</p>
+
+      <h2>The asymmetry that wrecks cheat devs</h2>
+
+      <p><strong>The cheat dev has to bypass EVERY layer that fires. The AC
+      team only needs ONE catch.</strong></p>
+
+      <p>Bypass the boot driver: 6 layers left.<br>
+      Bypass login: 5 layers left.<br>
+      Bypass lobby scan: 4 layers left.<br>
+      Bypass in-game runtime: 3 layers left.<br>
+      Bypass heartbeat: 2 layers left.<br>
+      Bypass demo analysis: 1 layer left.<br>
+      Trust score: nothing to bypass — your stats are anomalous, you get
+      placed in cheater pools and reviewed.</p>
+
+      <p>Even a perfect cheat that passes every TECHNICAL detection still
+      shows up in the stats analysis. That's why pro cheaters dial DOWN their
+      aimbot to look human, miss shots on purpose, fake reactions. The cheat
+      gets hidden inside human-plausible play. That's a SKILL, separate from
+      the cheat itself.</p>
+
+      <h2>Where this leaves you</h2>
+
+      <p>For the educational simulator, we work through ONE layer at a time
+      because that's how teaching works. For real games:</p>
+
+      <ul>
+        <li>Don't think "I beat the watchdog" — think "I beat ONE of seven
+        watchdogs"</li>
+        <li>The hardest layers are the ones with no on-client visibility
+        (server-side stats, demo analysis, trust score)</li>
+        <li>Time favors the AC team — every patch can add a new layer; every
+        ban wave catches accumulated tampering</li>
+        <li>"Free cheats" that survived for years did so against games with
+        a ONE-LAYER AC. Modern multiplayer doesn't ship those anymore</li>
+      </ul>
+
+      <p>Next article: <em>The Patch-Day Cycle</em> — what happens to your
+      cheat when the game patches.</p>
+    `,
+  },
+
+  {
+    id: "patch-day-cycle",
+    title: "The Patch-Day Cycle",
+    brief: "Why cheats are subscription products. The 6-step workflow real RE teams run when a patch ships.",
+    body: `
+      <h2>Why cheats charge $30/month</h2>
+      <p>Every cheat you've seen for sale is a subscription. Not because the
+      author wants recurring revenue (they do), but because <strong>the
+      product physically expires every patch.</strong> A hardcoded-offset
+      cheat lasts exactly until the next game update — sometimes that's
+      6 months, sometimes that's 8 hours.</p>
+
+      <table>
+        <thead><tr><th>Day</th><th>What's happening</th></tr></thead>
+        <tbody>
+          <tr><td>Day 0</td><td>Cheat ships. Customers happy. $30/mo recurring.</td></tr>
+          <tr><td>Day 30</td><td>Game patches. Every hardcoded address shifts. Some byte signatures break. Sometimes a new AC layer appears.</td></tr>
+          <tr><td>Day 30 + 1h</td><td>Cheat is dead. Discord on fire. Refund requests.</td></tr>
+          <tr><td>Day 30 + 1d</td><td>Updated build deployed. Customers happy again. Subscription continues.</td></tr>
+          <tr><td>Day 60</td><td>Repeat.</td></tr>
+        </tbody>
+      </table>
+
+      <p>The customers are paying for the <strong>maintenance</strong>, not
+      the original code. The original code was written once. The maintenance
+      is forever.</p>
+
+      <h2>The 6-step patch-day workflow</h2>
+
+      <p>This is what professional cheat dev teams (or single-person ops like
+      Drinking Cheetah) do the moment a patch ships.</p>
+
+      <h3>Step 1: Acquire the new binary</h3>
+      <p>Game patches ship. The patcher pulls down new client files. Your
+      cheat repo has a script that:</p>
+      <ul>
+        <li>Watches the game directory for changes</li>
+        <li>Copies the new binary into your archive (with version stamp)</li>
+        <li>Notifies your build pipeline that work is needed</li>
+      </ul>
+
+      <h3>Step 2: Binary diff against the previous version</h3>
+      <p>BinDiff (commercial, IDA plugin) or Diaphora (free, Python plugin)
+      compares old vs new:</p>
+      <pre><code>// BinDiff output (conceptual)
+Functions matched: 18,432  (97.2%)
+Functions changed: 487     (2.6%)
+  - sub_4A3B10  (was sub_4A3A20)  — moved + 0xF0, body unchanged
+  - sub_5C92A8  (was sub_5C82B8)  — moved, ALSO body changed (3 bytes diff)
+  - sub_72D1E0                    — NEW, no match in previous binary
+  ...
+Functions removed:  12     (0.06%)</code></pre>
+
+      <p>This output tells you instantly:</p>
+      <ul>
+        <li>Most code is unchanged — your sigscan-based code keeps working</li>
+        <li>Some code MOVED — your sigscanning still finds it, but hardcoded
+        offsets are dead</li>
+        <li>A few functions CHANGED — you need to look at these specifically</li>
+        <li>NEW functions — these are usually new AC checks. Investigate.</li>
+      </ul>
+
+      <h3>Step 3: Sigscan resilience check</h3>
+      <p>Run your existing AOB pattern library against the new binary.
+      Anything that still matches: zero work needed. Anything that no longer
+      matches: you have to update the pattern.</p>
+
+      <p><strong>This is why M44 AOB scan is the most important durable
+      lesson in the curriculum.</strong> A good sigscan-based cheat survives
+      90%+ of patches with no code changes — the scanner just finds the new
+      addresses on the next run.</p>
+
+      <pre><code>// What a sigscan-based feature looks like (vs hardcoded)
+
+// FRAGILE — breaks on every patch:
+constexpr uintptr_t ADDR_NORECOIL = 0x374B9EBC;
+*(BYTE*)ADDR_NORECOIL = 0x90;
+
+// DURABLE — survives most patches:
+const char* PATTERN = "D9 05 ?? ?? ?? ?? D8 65 ?? F3 0F";
+const char* MASK    = "xx????xx?xx";
+uintptr_t addr = aob_scan(module_base, module_size, PATTERN, MASK);
+if (addr) *(BYTE*)addr = 0x90;</code></pre>
+
+      <p>If Nexon (or whoever) patches the game and the function moves to a
+      different address, the sigscan still finds it — as long as the function
+      itself wasn't modified.</p>
+
+      <h3>Step 4: Update broken signatures</h3>
+      <p>For any AOB that no longer matches, open the relevant function in
+      IDA. Look at the bytes that changed. Adjust the pattern:</p>
+      <ul>
+        <li>If the change is small (a few bytes), wildcard those positions
+        in the pattern</li>
+        <li>If the change is large, write a new pattern based on a stable
+        portion of the function</li>
+        <li>If the function fundamentally changed, you need to RE the new
+        version and write a new feature</li>
+      </ul>
+
+      <h3>Step 5: Investigate NEW functions</h3>
+      <p>BinDiff flagged some functions as NEW (no match in previous binary).
+      Most of the time these are:</p>
+      <ul>
+        <li>New AC checks (look at what they read; suspect anti-tamper)</li>
+        <li>New gameplay features (probably not relevant)</li>
+        <li>New crash handlers / telemetry (usually not relevant)</li>
+      </ul>
+
+      <p>Decompile the new function with Hex-Rays. Read the pseudocode. If
+      it's an AC check, figure out what it reads and how to spoof / hook /
+      NOP it. If it's gameplay, ignore.</p>
+
+      <h3>Step 6: Test, package, ship</h3>
+      <p>Compile, smoke-test against the new binary, push to your customers'
+      auto-updater. Total time on a clean patch: 15-60 minutes if your
+      infrastructure is good. Hours-to-days if a major rewrite is needed.</p>
+
+      <h2>What an "infrastructure is good" setup looks like</h2>
+
+      <ul>
+        <li><strong>Sigscan library:</strong> 100+ patterns covering every
+        function the cheat touches. Auto-applied at runtime.</li>
+        <li><strong>Saved IDB:</strong> hundreds of named functions, structs,
+        vtables. New binary loads → BinDiff applies the labels to the new
+        version automatically.</li>
+        <li><strong>Modular features:</strong> NoRecoil, ESP, Aimbot are
+        independent files. A patch breaks one, the rest keep working.</li>
+        <li><strong>Battle-tested core:</strong> the manual mapper, the
+        render hook detour, the cheat menu UI — these don't break on patches
+        because they're not game-specific.</li>
+        <li><strong>Auto-updater for customers:</strong> when you ship a new
+        build, customers' loader pulls it transparently.</li>
+      </ul>
+
+      <h2>Why free cheats die</h2>
+
+      <p>Free cheats don't have funding for the infrastructure. The
+      original author writes hardcoded offsets, ships it, leaves. First patch
+      kills it. Maybe a forum poster updates it once. Second patch kills it
+      for good. The cheat is "abandoned" — the GitHub repo's last commit
+      is a year old.</p>
+
+      <p>Paid cheats have a team. The team's full-time job is patch-day
+      survival. That's the entire business model.</p>
+
+      <h2>What this means for you</h2>
+
+      <ul>
+        <li>If you're building a one-off educational cheat for an old game
+        (or our simulator), hardcoding is fine.</li>
+        <li>If you're building anything you want to LAST, sigscan everything
+        you can — the dev time investment up-front pays back in patch-day
+        speed forever.</li>
+        <li>The IDA database (IDB) you build is the most valuable artifact —
+        it gets richer with every patch you survive. Treat it like source code.</li>
+      </ul>
+
+      <p>Next article: <em>IDA Pro & Binary Diffing</em> — the toolchain
+      that makes the patch-day workflow possible.</p>
+    `,
+  },
+
+  {
+    id: "ida-pro-binary-diffing",
+    title: "IDA Pro & Binary Diffing — the cheat dev's toolchain",
+    brief: "How to read a stripped binary. Decompiler, sigscan extraction, BinDiff. The tools that make patch-day a 15-minute job.",
+    body: `
+      <h2>What IDA Pro actually is</h2>
+      <p><strong>IDA Pro</strong> (Interactive DisAssembler) is a static
+      analysis tool that takes a compiled binary (.exe / .dll / .so / .dylib)
+      and shows you everything inside it: assembly, control flow, strings,
+      imports, exports, and — with the Hex-Rays decompiler add-on — pseudocode
+      that reads like C.</p>
+
+      <p>It's the single most important tool in cheat dev. Free alternatives
+      exist (Ghidra, Cutter, radare2, Binary Ninja) and they're competent —
+      but IDA Pro is the industry standard, and most public cheat dev
+      tutorials reference it. Hex-Rays decompiler is the killer feature.</p>
+
+      <h3>The interface — what you'll spend hours staring at</h3>
+      <ul>
+        <li><strong>IDA View-A</strong>: assembly, function-by-function</li>
+        <li><strong>Pseudocode (F5)</strong>: Hex-Rays decompilation — reads
+        like ugly C</li>
+        <li><strong>Functions window</strong>: list of every function with
+        names (auto + your renames)</li>
+        <li><strong>Strings window</strong>: every string literal in the
+        binary</li>
+        <li><strong>Imports window</strong>: every external function the
+        binary calls (kernel32!CreateFileW etc)</li>
+        <li><strong>Exports window</strong>: functions the binary exposes
+        for others to call (DLLs)</li>
+        <li><strong>Names window</strong>: every named address — your
+        renamings live here</li>
+      </ul>
+
+      <h2>The IDB — your compounding asset</h2>
+
+      <p>An IDA database (.idb file) stores everything you've learned about
+      a binary. Every time you:</p>
+      <ul>
+        <li>Rename a function from <code>sub_4A3B10</code> to
+        <code>SendToServer</code></li>
+        <li>Define a struct: <code>struct CPlayer { int hp; int ammo; }</code></li>
+        <li>Set a function's calling convention (__stdcall vs __thiscall)</li>
+        <li>Add a comment explaining what a code path does</li>
+      </ul>
+      <p>...IDA saves it. Open the same binary 6 months later and your work
+      is intact. Open a NEW binary (next patch's ac_client.exe) and BinDiff
+      can transfer most of those labels automatically.</p>
+
+      <p><strong>This is the artifact Drinking-Cheetah-tier cheat devs build
+      over years.</strong> A 5-year-old IDB for a popular game's binary has
+      thousands of named functions, hundreds of structs, every important
+      offset documented. It's source code at that point.</p>
+
+      <h2>The cheat-dev workflow inside IDA</h2>
+
+      <h3>Find a function by string</h3>
+      <p>You want to find the chat-message handler. Open Strings window, type
+      <code>"You said:"</code>. Double-click the result. IDA jumps to where
+      that string is referenced. Right-click → "List cross references" — see
+      every function that uses that string. One of them is the chat handler.</p>
+
+      <h3>Find a function by import</h3>
+      <p>You want to find where the game calls <code>CreateFileW</code>.
+      Imports window, double-click <code>CreateFileW</code>. IDA shows every
+      callsite. Each callsite's function is a candidate for "this is where
+      the game opens files."</p>
+
+      <h3>Find a function by behavior</h3>
+      <p>You suspect there's a "is debugger present" check somewhere. You
+      know it'll call <code>IsDebuggerPresent</code> or read the PEB
+      directly. Use the Imports window for the API call, OR search assembly
+      for <code>fs:[30h]</code> (the PEB-access pattern on x86).</p>
+
+      <h3>The decompiler (F5) — your real superpower</h3>
+      <p>Place your cursor on a function. Press F5. Hex-Rays generates
+      pseudocode that reads like C:</p>
+
+      <pre><code>// Raw assembly (unreadable)
+.text:00401000 push    ebp
+.text:00401001 mov     ebp, esp
+.text:00401003 sub     esp, 10h
+.text:00401006 mov     eax, [ebp+8]
+.text:00401009 mov     edx, [ebp+0Ch]
+.text:0040100C imul    eax, edx
+.text:0040100F mov     [ebp-4], eax
+.text:00401012 mov     eax, [ebp-4]
+.text:00401015 add     esp, 10h
+.text:00401018 pop     ebp
+.text:00401019 retn
+
+// Hex-Rays output (readable):
+int __cdecl multiply(int a, int b) {
+    int result = a * b;
+    return result;
+}</code></pre>
+
+      <p>This is the difference between hours and minutes. With raw assembly
+      you have to mentally simulate the CPU. With pseudocode you read it like
+      a code review.</p>
+
+      <h2>Extracting an AOB pattern from IDA</h2>
+
+      <p>Once you've identified an interesting function, you want a sigscan
+      pattern that finds it across patches. The workflow:</p>
+
+      <ol>
+        <li>Click on the first instruction of the function</li>
+        <li>Look at the byte view — IDA shows the raw hex bytes for each
+        instruction</li>
+        <li>Pick a UNIQUE pattern (10-20 bytes is typical) — you want
+        enough specificity that no other place in the binary matches</li>
+        <li>Wildcard out any bytes that are likely to change between
+        builds — typically immediate addresses (the four bytes after a
+        <code>mov eax, &lt;address&gt;</code>) and relative offsets in
+        <code>jmp</code>/<code>call</code> instructions</li>
+      </ol>
+
+      <p>Concrete example for a hypothetical NoRecoil function:</p>
+
+      <pre><code>// IDA shows these bytes at the function entry:
+.text:0X374B9EBC  56                   push    esi
+.text:0X374B9EBD  8B F1                mov     esi, ecx
+.text:0X374B9EBF  D9 05 30 21 86 37    fld     dword ptr [37862130h]   ; <-- absolute addr, will move
+.text:0X374B9EC5  D8 65 08             fsub    dword ptr [ebp+8]
+.text:0X374B9EC8  D9 9E 00 04 00 00    fstp    dword ptr [esi+400h]
+.text:0X374B9ECE  C2 04 00             retn    4
+
+// Pattern (with wildcards on the absolute address):
+"56 8B F1 D9 05 ?? ?? ?? ?? D8 65 ?? D9 9E 00 04 00 00 C2 04 00"
+       (^^ wildcard ^^)              (^^ may also need ^^)
+
+// In code:
+auto addr = aob_scan(module, "56 8B F1 D9 05 ?? ?? ?? ?? D8 65 ?? D9 9E 00 04 00 00 C2 04 00");</code></pre>
+
+      <p>That pattern survives any patch where the function body itself
+      doesn't change — even if the function moves to a totally different
+      address.</p>
+
+      <h2>Binary diffing — surviving patch day</h2>
+
+      <p>Two main tools:</p>
+
+      <h3>BinDiff (commercial, free since Zynamics → Google acquisition)</h3>
+      <p>Plugin for IDA. Run it with two IDBs — old and new — as input. It
+      matches functions across the two binaries by:</p>
+      <ul>
+        <li>Control flow graph similarity (same structure of branches)</li>
+        <li>Instruction histogram (same mix of opcodes)</li>
+        <li>Calls-to / called-by neighborhoods (same surrounding context)</li>
+        <li>String references</li>
+      </ul>
+      <p>Output: a list of matched / changed / new / removed functions. AND
+      it can <strong>port your IDB labels</strong> from old to new — every
+      function you renamed in the old IDB shows up renamed in the new one.</p>
+
+      <h3>Diaphora (free, open-source, Python plugin)</h3>
+      <p>BinDiff alternative. Slightly different matching heuristics, similar
+      output. If you can't afford BinDiff (commercial license is pricy),
+      Diaphora is the standard free option.</p>
+
+      <h2>The patch-day workflow IN IDA</h2>
+
+      <ol>
+        <li>Save current IDB as <code>game_v1.0.4.idb</code></li>
+        <li>Open new binary, generate <code>game_v1.0.5.idb</code></li>
+        <li>Run BinDiff between the two</li>
+        <li>Apply the matches: BinDiff transfers your labels to the new IDB</li>
+        <li>Look at the "changed functions" list — usually 1-50 of them</li>
+        <li>For each: open the old version side-by-side with new, find the
+        actual diff (often 1-3 instructions), determine what changed</li>
+        <li>For each "new" function: decompile, read pseudocode, decide if
+        it's an AC check that needs handling</li>
+        <li>Update sigscan patterns for any function that moved AND
+        slightly modified</li>
+        <li>Test, package, ship</li>
+      </ol>
+
+      <p>This is the workflow that lets a single experienced dev turn around
+      a cheat in 15-30 minutes after a patch. It's not magic — it's a
+      compounding skill investment in IDB richness + sigscan library
+      coverage + practiced eye for what changed.</p>
+
+      <h2>Free alternatives if you can't afford IDA Pro</h2>
+
+      <table>
+        <thead><tr><th>Tool</th><th>Strengths</th><th>Weaknesses</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Ghidra</strong> (NSA, free)</td>
+            <td>Decompiler is genuinely good; multi-arch support; scriptable
+            in Python and Java</td>
+            <td>UI is clunkier than IDA; smaller community + plugin ecosystem</td>
+          </tr>
+          <tr>
+            <td><strong>Cutter</strong> (free, radare2 frontend)</td>
+            <td>Modern UI; uses radare2's strong static analysis</td>
+            <td>Decompiler weaker than Hex-Rays; smaller plugin ecosystem</td>
+          </tr>
+          <tr>
+            <td><strong>Binary Ninja</strong> (commercial, cheaper than IDA)</td>
+            <td>Modern UI; great IL system; scriptable in Python</td>
+            <td>Decompiler is recent; smaller plugin ecosystem</td>
+          </tr>
+          <tr>
+            <td><strong>radare2</strong> (free, terminal)</td>
+            <td>Free, open, scriptable, batch-friendly</td>
+            <td>Steep learning curve; no GUI by default</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>Realistic recommendation: start with <strong>Ghidra</strong> if
+      cost matters. Its decompiler is solid for educational use. Migrate to
+      IDA Pro if cheat dev becomes your specialty (or if you want to use
+      BinDiff seriously).</p>
+
+      <h2>What you can do after this article</h2>
+
+      <ul>
+        <li>Open a binary in IDA / Ghidra and navigate it</li>
+        <li>Use the decompiler to read function pseudocode</li>
+        <li>Find functions by string, import, or behavior</li>
+        <li>Extract an AOB pattern that survives patch-day</li>
+        <li>Use BinDiff / Diaphora to transfer labels across versions</li>
+        <li>Run the patch-day workflow yourself (or at minimum, understand
+        what a paid cheat dev is doing in those 15-30 minutes)</li>
+      </ul>
+
+      <p>This article + the Patch-Day Cycle + Modern Anti-Cheat Stack form
+      the strategic-layer trio. Combined with the M44 sigscan mission and
+      M48 base discovery mission, you have the full toolkit for "build a
+      cheat that lasts more than one patch."</p>
+    `,
+  },
 ];
 
 export class Library {
