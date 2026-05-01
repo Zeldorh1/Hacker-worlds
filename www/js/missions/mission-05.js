@@ -51,8 +51,8 @@ export const mission05 = {
 
     dialog.script("VEX", [
       "Hostile structs are laid out as an array. You found enemy.x last time — enemy.hp is just twelve bytes further along the same struct.",
-      "Heads up: every contact is taking fire and bleeds 4 HP every ~0.5s. You won't SEE it on screen — ESP isn't up yet — but the cells are dropping. That's the lever.",
-      "First Scan 100. Wait ONE second. Switch the filter to 'decreased' and Next Scan. Two-three rounds of that gets you to the HP cells.",
+      "Heads up: every contact is taking fire and bleeds 4 HP every ~0.5s — but the bleed only starts the moment you First Scan, so you can capture them at full 100 HP first.",
+      "First Scan 100. Wait one second so two decrement rounds land. Switch the filter to 'decreased' and Next Scan. Two-three rounds of that gets you to the HP cells.",
       "Watch one — the moment it's a real enemy.hp, ESP pops on every patrol: names, HP bars, the lot.",
     ]);
 
@@ -62,12 +62,24 @@ export const mission05 = {
     );
     const enemyHpLabels = target.enemyManager.enemies.map((_, i) => `enemy[${i}].hp`);
 
-    // Visibly drain enemy HP so 'decreased' narrowing has clear deltas
-    // every couple of ticks. 4 HP per ~0.5s gives the player faster
-    // feedback after First Scan — a 1-second pause is enough for two
-    // decrement rounds to land.
-    let lastDrain = performance.now();
+    // Drain enemy HP every 500ms for fast decreased-filter feedback.
+    // BUT — don't start draining until the player has run their first
+    // scan. Otherwise the enemy HP cells are already below 100 by the
+    // time First Scan(100) fires, and they fall out of the result set
+    // entirely. The player would narrow down noise drifters instead of
+    // real HP cells, and the win condition can never trigger.
+    let drainArmed = false;
+    let lastDrain = 0;
+    const scanner = window.__hw && window.__hw.scanner;
+    const unsubScanner = scanner ? scanner.on(() => {
+      if (!drainArmed && scanner.lastResults && scanner.lastResults.length > 0) {
+        drainArmed = true;
+        lastDrain = performance.now();
+      }
+    }) : null;
+
     const drainTick = setInterval(() => {
+      if (!drainArmed) return;
       if (target.paused) return;
       const now = performance.now();
       if (now - lastDrain < 500) return;
@@ -96,6 +108,7 @@ export const mission05 = {
     return () => {
       clearInterval(interval);
       clearInterval(drainTick);
+      if (unsubScanner) unsubScanner();
     };
   },
 };
