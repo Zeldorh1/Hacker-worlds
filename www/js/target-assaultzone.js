@@ -102,6 +102,12 @@ export class AssaultZone {
       // recent fire packet from the same client. OPK injection of
       // damage packets without a preceding fire is rejected.
       requireFirePairing: false,
+      // M59 lag-walk + M75 anti-aim: server's last-known position
+      // for this client. Updated whenever a position packet survives
+      // the DLL send-hooks. M59 drops position packets so canonicalPos
+      // stays stale; M75 rewrites position packets so canonicalPos
+      // moves to fake values.
+      canonicalPos: { x: 0, y: 0 },
     };
 
     // M30+ NETWORK — packet emission for missions that opt in via
@@ -235,6 +241,22 @@ export class AssaultZone {
       threshold: 3,
       lastDetectedAt: 0,
       auditing: false,   // true during the brief capture window
+    };
+
+    // M75 — sniper system. Periodically fires at server.canonicalPos
+    // (the SERVER's last-known position for the player). Hit detection
+    // compares canonicalPos to the player's REAL position. Without
+    // anti-aim, those are the same and shots hit. With anti-aim
+    // installed (packet hook rewrites position to fake values),
+    // canonicalPos diverges from real player.x/y and shots miss.
+    this.snipers = {
+      enabled: false,
+      fireIntervalMs: 800,
+      lastFireAt: 0,
+      hitCount: 0,
+      missCount: 0,
+      hitRadius: 1.5,
+      damagePerHit: 8,
     };
 
     // M33 — behavioral detector. Tracks recent crosshair-target
@@ -568,7 +590,13 @@ export class AssaultZone {
     this.serverHandlers = new Map();
     this.serverRequireAuth = false;   // M53 flips this on
     this.session = { id: 1, privileged: false, godMode: false, unkickable: false,
-                     speedMult: 1, infiniteAmmo: false };
+                     speedMult: 1, infiniteAmmo: false,
+                     // M76 — when true, server stops broadcasting position
+                     // to other clients; snipers/aimbots can't see you
+                     broadcastDisabled: false,
+                     // M77 — when true, server-side damage events targeting
+                     // this session are dropped on receipt
+                     damageImmune: false };
     this.engine = {
       // ID_God_Mode-style packet send — routes through the simulator's
       // server handler table. Two argument shapes:
@@ -783,6 +811,13 @@ export class AssaultZone {
     this.session.unkickable = false;
     this.session.speedMult = 1;
     this.session.infiniteAmmo = false;
+    this.session.broadcastDisabled = false;
+    this.session.damageImmune = false;
+    this.snipers.enabled = false;
+    this.snipers.hitCount = 0;
+    this.snipers.missCount = 0;
+    this.server.canonicalPos.x = this.player.x;
+    this.server.canonicalPos.y = this.player.y;
     codeSegment.reset();
     document.getElementById("hud-server")?.setAttribute("hidden", "");
     // Unfreeze any cells from a previous run.
@@ -964,6 +999,23 @@ export class AssaultZone {
   }
   disableFrameAudit() { this.frameAudit.enabled = false; }
 
+  // M75 — enable sniper fire that targets server.canonicalPos.
+  // Anti-aim defense: rewrite outgoing position packets so server's
+  // last-known position diverges from your real pos.
+  enableSnipers() {
+    this.snipers.enabled = true;
+    this.snipers.hitCount = 0;
+    this.snipers.missCount = 0;
+    this.snipers.lastFireAt = performance.now();
+    // Sync canonicalPos to current player pos so the first shot's
+    // baseline is real. If the cheat hooks position packets BEFORE
+    // any movement, canonicalPos will start matching player.x/y and
+    // then diverge as the player moves and packets get rewritten.
+    this.server.canonicalPos.x = this.player.x;
+    this.server.canonicalPos.y = this.player.y;
+  }
+  disableSnipers() { this.snipers.enabled = false; }
+
   // M40 — periodically simulate a spectator joining/leaving.
   // Emits 'spectator_joined' / 'spectator_left' recv packets.
   enableSpectator() {
@@ -1073,6 +1125,15 @@ export class AssaultZone {
     }
     this.network.log.push({ dir: "send", packet: p, t: performance.now() });
     if (this.network.log.length > 50) this.network.log.shift();
+    // M59 / M75 — server-side canonicalPos tracking. Whenever a position
+    // packet survives the DLL send-hooks, the server updates its
+    // last-known position for this client. M59 drops position packets
+    // entirely (canonicalPos goes stale). M75 rewrites x/y to fake
+    // values (canonicalPos moves to fake coordinates).
+    if (p && p.type === "position" && typeof p.x === "number") {
+      this.server.canonicalPos.x = p.x;
+      this.server.canonicalPos.y = p.y;
+    }
     return p;
   }
 
@@ -1494,6 +1555,33 @@ export class AssaultZone {
       // Schedule next audit with fresh jitter.
       const jitter = (Math.random() - 0.5) * this.frameAudit.jitterMs;
       this.frameAudit.nextAuditAt = now + this.frameAudit.baseIntervalMs + jitter;
+    }
+
+    // M75/M76/M77 — sniper fire. Enemies "fire" at the server's
+    // last-known position. Three layered effects:
+    //   M75 anti-aim:    rewrite outgoing position packets so
+    //                    canonicalPos diverges from real pos -> miss
+    //   M76 stealth:     session.broadcastDisabled true means snipers
+    //                    don't fire at all (server hasn't told them
+    //                    where you are)
+    //   M77 godmode:     session.damageImmune true means hits register
+    //                    but server drops the damage on receipt
+    if (this.snipers.enabled && !this.session.broadcastDisabled &&
+        now - this.snipers.lastFireAt > this.snipers.fireIntervalMs) {
+      this.snipers.lastFireAt = now;
+      const sp = this.server.canonicalPos;
+      const dx = this.player.x - sp.x;
+      const dy = this.player.y - sp.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < this.snipers.hitRadius) {
+        if (!memory.isFrozen(this.addrHP) && !this.session.damageImmune) {
+          this.player.hp = Math.max(0, this.player.hp - this.snipers.damagePerHit);
+        }
+        this.snipers.hitCount++;
+        if (!this.session.damageImmune) this._flashHit();
+      } else {
+        this.snipers.missCount++;
+      }
     }
 
     // M40 — spectator events. Toggle 'watching' state every ~8s so

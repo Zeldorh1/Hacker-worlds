@@ -64,6 +64,10 @@ import { mission71 } from "./mission-71.js";
 import { mission72 } from "./mission-72.js";
 import { mission73 } from "./mission-73.js";
 import { mission74 } from "./mission-74.js";
+import { mission75 } from "./mission-75.js";
+import { mission76 } from "./mission-76.js";
+import { mission77 } from "./mission-77.js";
+import { mission78 } from "./mission-78.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
@@ -158,7 +162,11 @@ export const MISSIONS = [
   mission59,    // LAG WALK / DESYNC — drop outgoing position packets
   mission38,
   mission54,    // GHOST AIM — packet target rewrite
+  mission75,    // ANTI-AIM / FAKE ANGLES — broadcast fake position so aimbots miss
+  mission76,    // SERVER-SIDE STEALTH — magic packet stops broadcast (AS/GA owner-tier)
+  mission77,    // SERVER-SIDE GOD MODE — server drops damage events targeting your session
   mission58,    // OPK — damage packet injection
+  mission78,    // LOBBY CRASHER — malformed packet ejects sim NPCs
   mission39, mission40,
   mission49,    // OUT-OF-PIPELINE ESP — GPU framebuffer capture bypass
 
