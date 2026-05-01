@@ -174,6 +174,32 @@ export class DllRuntime {
         this.isDebuggerHooks.push(fn);
         this._emit();
       },
+      // M50 — call a game-engine function directly. In real C++ this
+      // is the typedef + ADDR cast + invoke pattern:
+      //   typedef ret_t(*fn_t)(args...);
+      //   fn_t pFn = (fn_t)ADDR_OF_FUNCTION;
+      //   pFn(args);
+      // The simulator exposes a name-keyed table of engine functions
+      // on target.engine. M50/M51 use 'force_respawn', 'send_to_server',
+      // 'valid_pointer'.
+      call_engine_function: (name, ...args) => {
+        const t = (typeof window !== "undefined" && window.__hw)
+          ? window.__hw.target : null;
+        if (!t || !t.engine) {
+          this.log("[call_engine_function] engine not available");
+          return null;
+        }
+        const fn = t.engine[name];
+        if (typeof fn !== "function") {
+          this.log("[call_engine_function] unknown function: " + name);
+          return null;
+        }
+        try { return fn.apply(t.engine, args); }
+        catch (e) {
+          this.log("[call_engine_function error] " + e.message);
+          return null;
+        }
+      },
       // M49 — hook the AC's out-of-pipeline frame capture. fn receives
       // a frame descriptor {espActive, renderHookCount} and should
       // return a scrubbed version with those fields zeroed to hide the
@@ -286,6 +312,7 @@ export class DllRuntime {
             "inject_packet", "register_input_hook", "compute_hmac",
         "register_proc_enum_hook", "register_module_enum_hook",
         "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
+        "call_engine_function",
             wrapped
           );
           const a = this._makeApi();
@@ -296,7 +323,8 @@ export class DllRuntime {
             a.register_render_hook, a.register_packet_hook, a.load_payload,
             a.inject_packet, a.register_input_hook, a.compute_hmac,
         a.register_proc_enum_hook, a.register_module_enum_hook,
-        a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook
+        a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook,
+        a.call_engine_function
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -368,6 +396,7 @@ return {
         "inject_packet", "register_input_hook", "compute_hmac",
         "register_proc_enum_hook", "register_module_enum_hook",
         "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
+        "call_engine_function",
         wrapped
       );
     } catch (e) {
@@ -383,7 +412,8 @@ return {
         a.register_render_hook, a.register_packet_hook, a.load_payload,
         a.inject_packet, a.register_input_hook, a.compute_hmac,
         a.register_proc_enum_hook, a.register_module_enum_hook,
-        a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook
+        a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook,
+        a.call_engine_function
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };

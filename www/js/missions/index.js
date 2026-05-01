@@ -47,6 +47,10 @@ import { mission46 } from "./mission-46.js";
 import { mission47 } from "./mission-47.js";
 import { mission48 } from "./mission-48.js";
 import { mission49 } from "./mission-49.js";
+import { mission50 } from "./mission-50.js";
+import { mission51 } from "./mission-51.js";
+import { mission52 } from "./mission-52.js";
+import { mission53 } from "./mission-53.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
@@ -58,6 +62,10 @@ export const MISSIONS = [
   mission01, mission02, mission03, mission04, mission05,
   mission06, mission07, mission08,
   mission48,    // STATIC BASE DISCOVERY — natural follow-up to M08 ptr scan
+  mission50,    // LITHTECH ENGINE CALLS — once you can find addresses (M48), call them
+  mission51,    // SERVER-TRUSTED COMMAND IDS — magic packet exploit, the LithTech ID_God_Mode pattern
+  mission52,    // PATCH-RENAME ANTI-PATTERN — Nexon's failed fix strategy (153//404//200)
+  mission53,    // (DEFENSIVE) AUTH ON PRIVILEGED HANDLERS — the only correct fix
   mission09,
   mission10, mission11, mission12,
   mission13, mission14, mission15,

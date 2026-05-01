@@ -450,6 +450,10 @@ export class AssaultZone {
       name: "HAZARD_DAMAGE_APPLY",
       writesTo: [this.addrHP, this.addrServerHp],
       exec: () => {
+        // M51 — server-trusted godMode flag. When the magic packet
+        // ID has flipped session.godMode, the server tells the client
+        // hazard ticks deal zero damage.
+        if (this.session && this.session.godMode) return;
         this.player.hp -= HAZARD_DAMAGE;
         if (this.server.enabled) this.server.pendingDamage += HAZARD_DAMAGE;
       },
@@ -467,6 +471,8 @@ export class AssaultZone {
 
     this.paused = false;
     this._pausedAt = 0;
+
+    this._initEngineFunctions();
 
     this._wireInput();
     this._wireCanvasClicks();
@@ -516,6 +522,61 @@ export class AssaultZone {
     if (this.weapon.lastFireAt)   this.weapon.lastFireAt += pausedFor;
   }
   togglePause() { if (this.paused) this.resume(); else this.pause(); }
+
+  // ---- LithTech-style engine functions ----
+  //
+  // M50 teaches calling the game's own functions directly. In real
+  // C++ each is reached via:
+  //   typedef return_t(*fn_t)(args...);
+  //   fn_t pFn = (fn_t)ADDR_OF_FUNCTION;
+  //   pFn(args);
+  // Here we expose them as a namespace; the DLL API call_engine_function
+  // forwards to these.
+  _initEngineFunctions() {
+    // Server message handler table — populated by missions that need
+    // server-side packet IDs (M51 magic packets, M53 defensive auth).
+    // Each entry: { auth: bool, handler: (session, opts) => void }.
+    // M51 fills it with the leftover-debug-handler set; M53 enforces auth.
+    this.serverHandlers = new Map();
+    this.serverRequireAuth = false;   // M53 flips this on
+    this.session = { id: 1, privileged: false, godMode: false, unkickable: false,
+                     speedMult: 1, infiniteAmmo: false };
+    this.engine = {
+      // ID_God_Mode-style packet send — routes through the simulator's
+      // server handler table. M51 lesson: send a magic byte, server
+      // honors it. M53 lesson: server checks session.privileged first.
+      send_to_server: (id, opts) => {
+        const entry = this.serverHandlers.get(id | 0);
+        if (!entry) return { ok: false, reason: "unknown_id" };
+        if (this.serverRequireAuth && entry.auth && !this.session.privileged) {
+          this.serverDeniedCount = (this.serverDeniedCount | 0) + 1;
+          return { ok: false, reason: "auth_required" };
+        }
+        try { entry.handler(this.session, opts || {}); return { ok: true }; }
+        catch (e) { return { ok: false, reason: e.message }; }
+      },
+      // ValidPointer mirror — checks if an address has a binding in
+      // simulator memory. Real engines do the equivalent: verify the
+      // pointer references valid mapped memory before deref.
+      valid_pointer: (addr) => memory.cells.has(addr),
+      // M50 demo: instant respawn. In LithTech this would be a direct
+      // call to the engine's PlayerRespawn function. Bypasses the
+      // RESPAWN_DELAY_MS countdown the normal death-handler enforces.
+      force_respawn: () => {
+        if (this.player.alive) return { ok: false, reason: "already_alive" };
+        this.player.alive = 1;
+        this.player.hp = 100;
+        this.player.respawnTimerMs = 0;
+        this.player.x = this.respawnPoint.x;
+        this.player.y = this.respawnPoint.y;
+        this.server.canonicalHp = 100;
+        this.engineCallCount = (this.engineCallCount | 0) + 1;
+        return { ok: true };
+      },
+    };
+    this.engineCallCount = 0;
+    this.serverDeniedCount = 0;
+  }
 
   // ---- Mission control surface ----
 
@@ -601,6 +662,16 @@ export class AssaultZone {
     this.behavioral.violations = 0;
     this.behavioral.lastTargetId = 0;
     this.server.validateDamage = false;
+    // Engine / server state (M50-M53)
+    this.engineCallCount = 0;
+    this.serverDeniedCount = 0;
+    this.serverHandlers.clear();
+    this.serverRequireAuth = false;
+    this.session.privileged = false;
+    this.session.godMode = false;
+    this.session.unkickable = false;
+    this.session.speedMult = 1;
+    this.session.infiniteAmmo = false;
     codeSegment.reset();
     document.getElementById("hud-server")?.setAttribute("hidden", "");
     // Unfreeze any cells from a previous run.
