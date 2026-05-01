@@ -21,6 +21,7 @@
 
 import { memory } from "./sim-memory.js";
 import { AssaultZone } from "./target-assaultzone.js";
+import { codeSegment } from "./code-segment.js";
 
 const MAX_CONSOLE_LINES = 200;
 // localStorage key for the last successfully-compiled DLL source.
@@ -174,6 +175,59 @@ export class DllRuntime {
         this.isDebuggerHooks.push(fn);
         this._emit();
       },
+      // M64 — patch a code instruction. In real C++ this is a
+      // memcpy at a known function address with a one-byte opcode:
+      //   MemCopy((void*)ADDR_NORECOIL, "\\x90", 1);   // NOP
+      //   MemCopy((void*)ADDR_RESPAWN,  "\\xC3", 1);   // RET (early-out)
+      // Both effectively neutralize the instruction. The simulator's
+      // codeSegment exposes named instructions (id-keyed); patch_code
+      // toggles them between executing and NOPed.
+      //   patch_code(id, "nop")  - NOP (instruction skipped)
+      //   patch_code(id, "ret")  - early return (also skipped here)
+      //   patch_code(id, null)   - restore original
+      patch_code: (id, opcode) => {
+        const inst = codeSegment.get(id);
+        if (!inst) {
+          this.log("[patch_code] unknown instruction id: " + id);
+          return false;
+        }
+        if (opcode === null || opcode === undefined) {
+          codeSegment.restore(id);
+          this.log("[patch_code] " + id + " restored");
+          return true;
+        }
+        const op = String(opcode).toLowerCase();
+        const validOps = ["nop", "\\x90", "ret", "\\xc3"];
+        if (!validOps.includes(op)) {
+          this.log("[patch_code] unknown opcode: " + opcode + " (use nop or ret)");
+          return false;
+        }
+        codeSegment.nop(id);
+        this.log("[patch_code] " + id + " patched with " + op);
+        return true;
+      },
+      // M64 — list code instructions the cheat can see, with their
+      // simulated code addresses. Mirrors a reverse-engineering
+      // session's address dump (from the Combat Arms cheat reference).
+      list_code_addresses: () => {
+        const out = [];
+        for (const [, inst] of codeSegment.instructions) {
+          out.push({ id: inst.id, name: inst.name, addr: inst.addr, nopped: !!inst.nopped });
+        }
+        return out;
+      },
+      // M54 — enumerate enemies from inside packet hooks / cheats.
+      // Returns [{id, name, x, y, hp, alive}]. Real-world equivalent:
+      // walking the engine's player/entity list (LTClient->GetClientList
+      // in LithTech, IClientEntityList::GetClientEntity in Source).
+      sim_enemies: () => {
+        const t = (typeof window !== "undefined" && window.__hw)
+          ? window.__hw.target : null;
+        if (!t || !t.enemyManager) return [];
+        return t.enemyManager.enemies.map(e => ({
+          id: e.id, name: e.name, x: e.x, y: e.y, hp: e.hp, alive: !!e.alive,
+        }));
+      },
       // M50 — call a game-engine function directly. In real C++ this
       // is the typedef + ADDR cast + invoke pattern:
       //   typedef ret_t(*fn_t)(args...);
@@ -312,7 +366,8 @@ export class DllRuntime {
             "inject_packet", "register_input_hook", "compute_hmac",
         "register_proc_enum_hook", "register_module_enum_hook",
         "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
-        "call_engine_function",
+        "call_engine_function", "sim_enemies",
+        "patch_code", "list_code_addresses",
             wrapped
           );
           const a = this._makeApi();
@@ -324,7 +379,8 @@ export class DllRuntime {
             a.inject_packet, a.register_input_hook, a.compute_hmac,
         a.register_proc_enum_hook, a.register_module_enum_hook,
         a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook,
-        a.call_engine_function
+        a.call_engine_function, a.sim_enemies,
+        a.patch_code, a.list_code_addresses
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -396,7 +452,8 @@ return {
         "inject_packet", "register_input_hook", "compute_hmac",
         "register_proc_enum_hook", "register_module_enum_hook",
         "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
-        "call_engine_function",
+        "call_engine_function", "sim_enemies",
+        "patch_code", "list_code_addresses",
         wrapped
       );
     } catch (e) {
@@ -413,7 +470,8 @@ return {
         a.inject_packet, a.register_input_hook, a.compute_hmac,
         a.register_proc_enum_hook, a.register_module_enum_hook,
         a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook,
-        a.call_engine_function
+        a.call_engine_function, a.sim_enemies,
+        a.patch_code, a.list_code_addresses
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };

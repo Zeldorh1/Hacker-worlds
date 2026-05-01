@@ -469,6 +469,26 @@ export class AssaultZone {
       },
     });
 
+    // M64 — weapon range check. When enabled (this.weapon.rangeLimit
+    // > 0), this instruction zeros damage if the target is farther
+    // than the limit. The data cells (weapon.damage etc.) all read
+    // correct; the limit is enforced by the INSTRUCTION, not a flag.
+    // Cheat fix: NOP the instruction (the M64 byte-patch lesson).
+    codeSegment.define("weapon_range_check", {
+      name: "WEAPON_RANGE_CHECK",
+      writesTo: [this.addrWeaponDamage],
+      exec: () => {
+        if (this.weapon.rangeLimit > 0 && this._lastFireDistance > this.weapon.rangeLimit) {
+          this._rangeCheckBlocked = true;
+        } else {
+          this._rangeCheckBlocked = false;
+        }
+      },
+    });
+    this._lastFireDistance = 0;
+    this._rangeCheckBlocked = false;
+    this.weapon.rangeLimit = 0;
+
     this.paused = false;
     this._pausedAt = 0;
 
@@ -655,6 +675,10 @@ export class AssaultZone {
     this.frameAudit.detections = 0;
     this.frameAudit.auditing = false;
     this.frameAudit.nextAuditAt = 0;
+    // M64 — clear range limit (and the corresponding code-segment NOP).
+    this.weapon.rangeLimit = 0;
+    this._lastFireDistance = 0;
+    this._rangeCheckBlocked = false;
     this.player.noClip = 0;
     memory.setFrozen(this.addrPlayerNoClip, false);
     this.behavioral.enabled = false;
@@ -732,6 +756,15 @@ export class AssaultZone {
     this.weapon.recoilCurrent = 0;
     document.getElementById("hud-recoil")?.removeAttribute("hidden");
   }
+  // M64 — enable a weapon range cap. Distance > limit: damage is
+  // zeroed by the weapon_range_check instruction. Cheat-side fix is
+  // to NOP that instruction's bytes (the M64 lesson).
+  enableRangeLimit(tiles = 4) {
+    this.weapon.rangeLimit = tiles;
+    this._lastFireDistance = 0;
+    this._rangeCheckBlocked = false;
+  }
+  disableRangeLimit() { this.weapon.rangeLimit = 0; }
   disableRecoil() {
     this.weapon.recoilPerShot = 0;
     this.weapon.recoilCurrent = 0;
@@ -1052,6 +1085,13 @@ export class AssaultZone {
     this.weapon.recoilCurrent += this.weapon.recoilPerShot;
     const e = this.enemyManager.enemies.find(e => e.id === this.crosshairTargetId && e.alive);
     if (!e) return false;
+    // M64 — weapon range check (the patchable instruction).
+    if (this.weapon.rangeLimit > 0) {
+      const dx = e.x - this.player.x, dy = e.y - this.player.y;
+      this._lastFireDistance = Math.sqrt(dx * dx + dy * dy);
+      codeSegment.run("weapon_range_check");
+      if (this._rangeCheckBlocked) return false;
+    }
     const aimbotting = memory.isFrozen(this.addrCrosshair);
     // Miss when recoil is past threshold. The shot still fires (ammo
     // gone, shotsFired counted) but no damage applied — the bullet

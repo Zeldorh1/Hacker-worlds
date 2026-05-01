@@ -51,6 +51,9 @@ import { mission50 } from "./mission-50.js";
 import { mission51 } from "./mission-51.js";
 import { mission52 } from "./mission-52.js";
 import { mission53 } from "./mission-53.js";
+import { mission54 } from "./mission-54.js";
+import { mission64 } from "./mission-64.js";
+import { mission65 } from "./mission-65.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
@@ -69,14 +72,20 @@ export const MISSIONS = [
   mission09,
   mission10, mission11, mission12,
   mission13, mission14, mission15,
-  mission16, mission17, mission18, mission19, mission20,
+  mission16, mission17,
+  mission64,    // BYTE PATCHING — \x90 NOP / \xC3 RET, the NORECOIL/NORELOAD pattern
+  mission18, mission19, mission20,
   mission21, mission22, mission23, mission24,
   mission47,    // DLL ANATOMY — taught here so M24's template makes sense
   mission25, mission26, mission27, mission28, mission29,
   mission30, mission31, mission32,
   mission33, mission34, mission35, mission36,
-  mission37, mission38, mission39, mission40,
+  mission37, mission38,
+  mission54,    // GHOST AIM — packet target rewrite (HMAC re-sign already covered in M38)
+  mission39, mission40,
   mission49,    // OUT-OF-PIPELINE ESP — GPU framebuffer capture bypass, follows spectator detection
-  mission41, mission42, mission43, mission44, mission45, mission46,
+  mission41, mission42, mission43,
+  mission65,    // GHOST MODE — FLAG_SOLID + camera-update RET-patch (LithTech engine API abuse)
+  mission44, mission45, mission46,
 ];
 export const MISSIONS_BY_ID = Object.fromEntries(MISSIONS.map(m => [m.id, m]));
