@@ -69,6 +69,14 @@ VAC, EAC, BattlEye all ship some version of this scan.`,
     target.reset();
     target.enableWatchdog();
 
+    // Don't let the watchdog tick until the player has done their
+    // First Scan. Otherwise the watchdog increments while the player
+    // is still navigating menus, the value moves off 0 before scan,
+    // and the snapshot can never contain it. Setting lastTickAt far
+    // in the future delays the first tick indefinitely; the scanner.on
+    // listener resets it to 'now' once the player snapshots.
+    target.watchdog.lastTickAt = Number.MAX_SAFE_INTEGER;
+
     dialog.script("VEX", [
       "Heads up — this target's running a memory integrity watchdog. Nasty piece of work. Real anti-cheats run it like clockwork.",
       "Every tick, it scans your cells for tampering. If anything's frozen when it ticks, your VIOLATE bar climbs. 100% and you're out.",
@@ -79,6 +87,17 @@ VAC, EAC, BattlEye all ship some version of this scan.`,
     const xAddr = memory.addressOfLabel("player.x");
     const wdAddr = memory.addressOfLabel("watchdog.tick");
     let done = false;
+
+    // Arm the watchdog tick on the player's first scan with results.
+    const scanner = window.__hw && window.__hw.scanner;
+    let watchdogArmed = false;
+    const unsubScanner = scanner ? scanner.on(() => {
+      if (!watchdogArmed && scanner.lastResults && scanner.lastResults.length > 0) {
+        watchdogArmed = true;
+        target.watchdog.lastTickAt = performance.now();
+      }
+    }) : null;
+
     const interval = setInterval(() => {
       if (done) return;
       if (memory.isFrozen(wdAddr) && memory.isFrozen(xAddr)) {
@@ -88,6 +107,9 @@ VAC, EAC, BattlEye all ship some version of this scan.`,
       }
     }, 250);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (unsubScanner) unsubScanner();
+    };
   },
 };
