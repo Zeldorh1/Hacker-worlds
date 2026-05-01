@@ -4594,6 +4594,185 @@ for (auto&amp; region : EnumerateMemoryRegions(hGame)) {
       <em>IDA Pro Workflow</em>, <em>ReClass.NET Workflow</em>.</p>
     `,
   },
+
+  {
+    id: "build-your-own-trainer",
+    title: "Build Your Own Trainer: The Progression",
+    brief: "From 5-line freeze to full GUI menu trainer to manual-mapped DLL. Track 4's roadmap.",
+    body: `
+      <h2>Why Track 4 exists</h2>
+      <p>Tracks 1-3 give you the techniques. They're the vocabulary.
+      Track 4 is the sentence — putting them together to actually
+      AUTHOR a trainer that someone could ship. Each mission grows the
+      same template:</p>
+
+      <table>
+        <thead>
+          <tr><th>Stage</th><th>Mission</th><th>What you build</th><th>Lines</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>M70</td><td>Single-address HP freeze</td><td>~5</td></tr>
+          <tr><td>2</td><td>M71</td><td>Add a toggle (register_cheat)</td><td>~10</td></tr>
+          <tr><td>3</td><td>M72</td><td>Multi-feature menu (4 toggles)</td><td>~30</td></tr>
+          <tr><td>4</td><td>M73</td><td>DIY canvas menu (render hook + input hook)</td><td>~80</td></tr>
+          <tr><td>5</td><td>M74</td><td>Save/load config (localStorage)</td><td>~100</td></tr>
+          <tr><td>6</td><td>Codex</td><td>Auto-injector workflow (Extreme Injector)</td><td>n/a</td></tr>
+          <tr><td>7</td><td>Codex</td><td>Write your own injector (LoadLibrary, ~80 lines C++)</td><td>~80 C++</td></tr>
+          <tr><td>8</td><td>Codex</td><td>Manual-mapping injector (~200 lines C++)</td><td>~200 C++</td></tr>
+          <tr><td>9</td><td>Codex</td><td>External trainer capstone (RPM/WPM, full UI)</td><td>~400 C++</td></tr>
+        </tbody>
+      </table>
+
+      <h2>The architecture you'll be building</h2>
+
+      <p>By M72 your trainer's structure looks like:</p>
+
+      <pre><code>// Single file, internal DLL form (sim equivalent)
+void onInject() {
+    // For each feature: register a label + tick handler
+    register_cheat("HP Freeze",     () => write_label("player.hp", 9999));
+    register_cheat("Infinite Ammo", () => write_label("player.ammo", 999));
+    register_cheat("No Recoil",     () => write_label("weapon.recoilPerShot", 0));
+    register_cheat("ESP",           () => write_label("render.espVisible", 1));
+}</code></pre>
+
+      <p>That's a complete multi-feature trainer in 7 lines of body code.
+      The simulator's cheat menu hosts the UI. By M73 you replace the
+      built-in menu with your own canvas-drawn checkbox UI (using render
+      hooks + input hooks). By M74 you persist the user's checkbox state
+      to localStorage so the trainer remembers settings across runs.</p>
+
+      <h2>The C++ form</h2>
+
+      <p>The same trainer in real C++ as an internal DLL:</p>
+
+      <pre><code>// trainer.cpp - compile to trainer.dll
+#include &lt;windows.h&gt;
+#include &lt;thread&gt;
+
+// Hardcoded offsets reverse-engineered with M48-style base discovery.
+constexpr uintptr_t HP_OFFSET     = 0xEC;
+constexpr uintptr_t AMMO_OFFSET   = 0x140;
+constexpr uintptr_t RECOIL_OFFSET = 0x1A0;
+
+bool g_HpFreeze     = false;
+bool g_InfiniteAmmo = false;
+bool g_NoRecoil     = false;
+
+uintptr_t g_PlayerBase = 0;
+
+void cheat_thread() {
+    HMODULE hMod = GetModuleHandleA("ac_client.exe");
+    uintptr_t client_base = (uintptr_t)hMod;
+
+    while (true) {
+        // Resolve the player struct each tick (it might rebase).
+        g_PlayerBase = *(uintptr_t*)(client_base + 0x10F4F4);
+
+        if (g_PlayerBase) {
+            if (g_HpFreeze)     *(int*)(g_PlayerBase + HP_OFFSET)     = 9999;
+            if (g_InfiniteAmmo) *(int*)(g_PlayerBase + AMMO_OFFSET)   = 999;
+            if (g_NoRecoil)     *(int*)(g_PlayerBase + RECOIL_OFFSET) = 0;
+        }
+
+        Sleep(16);   // ~60 ticks per second
+    }
+}
+
+void render_menu() {
+    // ImGui-style:
+    ImGui::Begin("Trainer");
+    ImGui::Checkbox("HP Freeze",     &amp;g_HpFreeze);
+    ImGui::Checkbox("Infinite Ammo", &amp;g_InfiniteAmmo);
+    ImGui::Checkbox("No Recoil",     &amp;g_NoRecoil);
+    ImGui::End();
+}
+
+BOOL APIENTRY DllMain(HMODULE, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        std::thread(cheat_thread).detach();
+        // Render hook installation (DirectX detour) goes here
+    }
+    return TRUE;
+}</code></pre>
+
+      <p>The structure maps 1-to-1 onto the sim mission template. The
+      <code>cheat_thread</code> while loop is the <code>onTick</code>
+      simulation. The <code>g_*</code> bools are what M71's toggle wrote.
+      <code>register_cheat</code> in the simulator is
+      <code>ImGui::Checkbox</code> in the C++ version.</p>
+
+      <h2>The external trainer form</h2>
+
+      <p>Same trainer as an EXTERNAL .exe (no DLL injection required):</p>
+
+      <pre><code>// trainer.exe - reads/writes the game's memory from outside.
+HANDLE hGame = OpenProcess(...);   // see Windows API codex
+uintptr_t base = find_module_base(pid, L"ac_client.exe");
+
+while (running) {
+    uintptr_t player_base = 0;
+    ReadProcessMemory(hGame, (LPCVOID)(base + 0x10F4F4),
+                      &amp;player_base, sizeof(uintptr_t), NULL);
+    if (!player_base) { Sleep(100); continue; }
+
+    int target_hp = 9999, target_ammo = 999, zero = 0;
+    if (g_HpFreeze)     WriteProcessMemory(hGame,
+                          (LPVOID)(player_base + HP_OFFSET),
+                          &amp;target_hp, sizeof(int), NULL);
+    if (g_InfiniteAmmo) WriteProcessMemory(hGame,
+                          (LPVOID)(player_base + AMMO_OFFSET),
+                          &amp;target_ammo, sizeof(int), NULL);
+    if (g_NoRecoil)     WriteProcessMemory(hGame,
+                          (LPVOID)(player_base + RECOIL_OFFSET),
+                          &amp;zero, sizeof(int), NULL);
+
+    Sleep(50);
+}</code></pre>
+
+      <p>Same logic, different memory access path. Internal: direct pointer
+      deref. External: RPM/WPM through the kernel.</p>
+
+      <h2>The injection chain (M76-M78 codex)</h2>
+
+      <p>Internal-cheat path requires getting your DLL into the game's
+      process. Three escalating tiers:</p>
+
+      <ol>
+        <li><strong>Auto-injector (M76)</strong>: Extreme Injector or Process
+        Hacker. UI app, you pick the game + your DLL, click inject. Behind
+        the scenes does Method 1 (LoadLibrary) from the PE Format article.</li>
+        <li><strong>Your own injector (M77)</strong>: 80-line C++ console
+        app implementing the Method 1 LoadLibrary injection from scratch.
+        This is the full template the existing codex article references.</li>
+        <li><strong>Manual mapper (M78)</strong>: 200-line C++ that parses
+        the PE format yourself, handles relocations, resolves imports,
+        calls DllMain via shellcode. The production-tier injector. Your
+        DLL doesn't appear in the loaded-modules list.</li>
+      </ol>
+
+      <h2>The capstone (M79)</h2>
+
+      <p>By the end of Track 4 you'll have authored:</p>
+      <ul>
+        <li>A multi-feature internal cheat (M70-M75 in the simulator)</li>
+        <li>An auto-injector workflow you understand (M76)</li>
+        <li>A LoadLibrary injector you wrote from the API primitives (M77)</li>
+        <li>A manual-mapper that bypasses module-list detection (M78)</li>
+        <li>An external trainer with full RPM/WPM-based access (M79)</li>
+      </ul>
+
+      <p>That's the entire stack a competent cheat dev needs. After Track 4
+      you can sit down with a new game, find addresses with Cheat Engine,
+      and write your own trainer from scratch. No copy-pasting required.</p>
+
+      <h2>How to use this article</h2>
+
+      <p>Read it once when you start M70 to know where the track is going.
+      Re-read each section as you complete the corresponding stage; the C++
+      examples will land harder once you've built the simulator equivalents.</p>
+    `,
+  },
 ];
 
 export class Library {

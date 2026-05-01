@@ -4,7 +4,7 @@
 // doesn't get poisoned by stale browser HTTP-cache entries during the
 // initial pre-fetch. Without this, a user upgrading from an older SW
 // can end up with the new SW cache name but the OLD bytes inside it.
-const CACHE = "hw-v47";
+const CACHE = "hw-v48";
 const ASSETS = [
   "./",
   "./index.html",
@@ -92,6 +92,9 @@ const ASSETS = [
   "./js/missions/mission-64.js",
   "./js/missions/mission-65.js",
   "./js/missions/mission-66.js",
+  "./js/missions/mission-70.js",
+  "./js/missions/mission-71.js",
+  "./js/missions/mission-72.js",
   "./icons/icon-192.svg",
   "./icons/icon-512.svg",
 ];

@@ -59,6 +59,9 @@ import { mission59 } from "./mission-59.js";
 import { mission64 } from "./mission-64.js";
 import { mission65 } from "./mission-65.js";
 import { mission66 } from "./mission-66.js";
+import { mission70 } from "./mission-70.js";
+import { mission71 } from "./mission-71.js";
+import { mission72 } from "./mission-72.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
@@ -129,6 +132,16 @@ export const MISSIONS = [
   mission41, mission42, mission43,
   mission65,    // GHOST MODE — FLAG_SOLID + camera-update RET-patch
   mission44, mission45, mission46,
+
+  // ============================================================
+  // TRACK 4 — BUILD YOUR OWN TRAINER: chained capstone arc.
+  // Each mission grows the same trainer template. By the end the
+  // player has authored a multi-feature toggle-menu trainer.
+  // ============================================================
+  mission70,    // STAGE 1: Single-address freeze (your first cheat)
+  mission71,    // STAGE 2: Add a toggle (register_cheat menu entry)
+  mission72,    // STAGE 3: Multi-feature menu (4 toggles in one cheat)
+  // M73-M74: DIY canvas menu, save/load — coming next batch
 
   // ============================================================
   // TRACK 3 — SYSTEMS: see Codex for Windows API, PE format,
