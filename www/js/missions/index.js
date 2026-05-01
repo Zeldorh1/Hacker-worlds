@@ -54,6 +54,8 @@ import { mission53 } from "./mission-53.js";
 import { mission54 } from "./mission-54.js";
 import { mission55 } from "./mission-55.js";
 import { mission56 } from "./mission-56.js";
+import { mission58 } from "./mission-58.js";
+import { mission59 } from "./mission-59.js";
 import { mission64 } from "./mission-64.js";
 import { mission65 } from "./mission-65.js";
 
@@ -85,8 +87,11 @@ export const MISSIONS = [
   mission27, mission28, mission29,
   mission30, mission31, mission32,
   mission33, mission34, mission35, mission36,
-  mission37, mission38,
+  mission37,
+  mission59,    // LAG WALK / DESYNC — drop outgoing position packets (server stale)
+  mission38,
   mission54,    // GHOST AIM — packet target rewrite (HMAC re-sign already covered in M38)
+  mission58,    // OPK — damage packet injection (server applies w/o fire pairing)
   mission39, mission40,
   mission49,    // OUT-OF-PIPELINE ESP — GPU framebuffer capture bypass, follows spectator detection
   mission41, mission42, mission43,

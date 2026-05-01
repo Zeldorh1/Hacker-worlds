@@ -98,6 +98,10 @@ export class AssaultZone {
       // packets against current weapon stats. Crafted packets
       // claiming damage > weapon.damage * 2 get clamped down.
       validateDamage: false,
+      // M58/M67: when true, damage events must be paired with a
+      // recent fire packet from the same client. OPK injection of
+      // damage packets without a preceding fire is rejected.
+      requireFirePairing: false,
     };
 
     // M30+ NETWORK — packet emission for missions that opt in via
@@ -583,6 +587,44 @@ export class AssaultZone {
       // simulator memory. Real engines do the equivalent: verify the
       // pointer references valid mapped memory before deref.
       valid_pointer: (addr) => memory.cells.has(addr),
+      // M58 — OPK / damage-packet injection. Real C++ equivalent:
+      // construct a 'damage' packet matching the server's wire format
+      // and SendToServer it directly, bypassing the game's fire path.
+      // Server sees a valid-looking damage event for an enemy, applies
+      // it. Doesn't matter that the player never fired or aimed.
+      // Only defense is server-side: validate that the damage event
+      // pairs with a recent fire packet from this client (M58/M67).
+      inject_damage: (targetId, amount) => {
+        const e = this.enemyManager.enemies.find(x => x.id === (targetId | 0));
+        if (!e) return { ok: false, reason: "unknown_target" };
+        if (!e.alive) return { ok: false, reason: "already_dead" };
+        let dmg = Math.max(0, amount | 0);
+        if (this.server.validateDamage) {
+          const cap = Math.max(1, (this.weapon.damage * 2) | 0);
+          if (dmg > cap) dmg = cap;
+        }
+        // M67 (defensive) — if server requires fire-evidence, reject
+        // damage events without a recent matching fire packet from us.
+        if (this.server.requireFirePairing) {
+          const window = 1500;
+          const now = performance.now();
+          const recentFire = (this.network.log || [])
+            .some(l => l.dir === "send" && l.packet && l.packet.type === "fire" &&
+                       (now - l.t) < window);
+          if (!recentFire) {
+            this.injectedDamageRejected = (this.injectedDamageRejected | 0) + 1;
+            return { ok: false, reason: "no_fire_pairing" };
+          }
+        }
+        e.hp = Math.max(0, e.hp - dmg);
+        if (e.hp <= 0) {
+          e.alive = 0;
+          this.killCount = (this.killCount | 0) + 1;
+          this.injectedDamageKills = (this.injectedDamageKills | 0) + 1;
+        }
+        this.injectedDamageApplied = (this.injectedDamageApplied | 0) + 1;
+        return { ok: true, target: e.id, hp: e.hp, dead: !e.alive };
+      },
       // M56 — D3D-style render-state setter. Real engine equivalent:
       // IDirect3DDevice9::SetRenderState(D3DRS_FILLMODE, ...). Cheats
       // hook this to force wireframe / disable depth-test / etc. The
@@ -612,6 +654,9 @@ export class AssaultZone {
     };
     this.engineCallCount = 0;
     this.serverDeniedCount = 0;
+    this.injectedDamageApplied = 0;
+    this.injectedDamageKills = 0;
+    this.injectedDamageRejected = 0;
   }
 
   // ---- Mission control surface ----
@@ -704,9 +749,13 @@ export class AssaultZone {
     this.behavioral.violations = 0;
     this.behavioral.lastTargetId = 0;
     this.server.validateDamage = false;
+    this.server.requireFirePairing = false;
     // Engine / server state (M50-M53)
     this.engineCallCount = 0;
     this.serverDeniedCount = 0;
+    this.injectedDamageApplied = 0;
+    this.injectedDamageKills = 0;
+    this.injectedDamageRejected = 0;
     this.serverHandlers.clear();
     this.serverRequireAuth = false;
     this.session.privileged = false;
