@@ -66,38 +66,73 @@ import { mission66 } from "./mission-66.js";
 // put a teaching mission right after the one it builds on, even when
 // its file was added later. Internal IDs (m47 etc) never change, so
 // saved progress in localStorage is preserved across reorderings.
+//
+// CURRICULUM TRACKS:
+//   TRACK 1 — FOUNDATION (find addresses):  M01-M08 + base discovery
+//   TRACK 2 — FEATURES (build cheats with the addresses you found):
+//             everything from M09 onward — DLL code patterns, render
+//             hooks, packet hooks, byte patching, engine calls,
+//             multi-field packets, server-trust exploits
+//   TRACK 3 — SYSTEMS (deeper systems programming): mostly Codex
+//             articles — Windows API, PE format, manual mapping,
+//             D3D pipeline, IDA/x64dbg/ReClass workflows
 export const MISSIONS = [
+  // ============================================================
+  // TRACK 1 — FOUNDATION: finding addresses (Cheat Engine workflow)
+  // ============================================================
   mission01, mission02, mission03, mission04, mission05,
   mission06, mission07, mission08,
-  mission48,    // STATIC BASE DISCOVERY — natural follow-up to M08 ptr scan
-  mission50,    // LITHTECH ENGINE CALLS — once you can find addresses (M48), call them
-  mission51,    // SERVER-TRUSTED COMMAND IDS — magic packet exploit, the LithTech ID_God_Mode pattern
-  mission66,    // MULTI-FIELD PACKETS — CAutoMessage typed-field builder pattern
-  mission52,    // PATCH-RENAME ANTI-PATTERN — Nexon's failed fix strategy (153//404//200)
+  mission48,    // STATIC BASE DISCOVERY — module + offset workflow
+
+  // ============================================================
+  // TRACK 2 — FEATURES: writing code that USES those addresses
+  // ============================================================
+  // -- Engine function calls + server-trust exploits
+  mission50,    // LITHTECH ENGINE CALLS — typedef + ADDR cast + invoke
+  mission51,    // SERVER-TRUSTED COMMAND IDS — single-byte magic packets
+  mission66,    // MULTI-FIELD PACKETS — CAutoMessage typed-field builder
+  mission52,    // PATCH-RENAME ANTI-PATTERN — Nexon's failed fix strategy
   mission53,    // (DEFENSIVE) AUTH ON PRIVILEGED HANDLERS — the only correct fix
+
+  // -- Cell-level cheats (HP, ammo, weapons)
   mission09,
   mission10, mission11, mission12,
   mission13, mission14, mission15,
   mission16, mission17,
   mission64,    // BYTE PATCHING — \x90 NOP / \xC3 RET, the NORECOIL/NORELOAD pattern
+
+  // -- Player-state cheats (death/respawn/position)
   mission18, mission19, mission20,
+
+  // -- Anti-cheat awareness + DLL fundamentals
   mission21, mission22, mission23, mission24,
-  mission47,    // DLL ANATOMY — taught here so M24's template makes sense
+  mission47,    // DLL ANATOMY — annotated C++ skeleton
   mission25, mission26,
-  mission55,    // CHAMS + SKELETON ESP — render-hook variants beyond M26's box
-  mission56,    // WIREFRAME WALLS — render-state manipulation (D3DRS_FILLMODE)
+
+  // -- Render-side cheats (ESP variants)
+  mission55,    // CHAMS + SKELETON ESP — render-hook variants beyond M26
+  mission56,    // WIREFRAME WALLS — render-state manipulation
   mission27, mission28, mission29,
+
+  // -- Network / server-state cheats
   mission30, mission31, mission32,
   mission33, mission34, mission35, mission36,
   mission37,
-  mission59,    // LAG WALK / DESYNC — drop outgoing position packets (server stale)
+  mission59,    // LAG WALK / DESYNC — drop outgoing position packets
   mission38,
-  mission54,    // GHOST AIM — packet target rewrite (HMAC re-sign already covered in M38)
-  mission58,    // OPK — damage packet injection (server applies w/o fire pairing)
+  mission54,    // GHOST AIM — packet target rewrite
+  mission58,    // OPK — damage packet injection
   mission39, mission40,
-  mission49,    // OUT-OF-PIPELINE ESP — GPU framebuffer capture bypass, follows spectator detection
+  mission49,    // OUT-OF-PIPELINE ESP — GPU framebuffer capture bypass
+
+  // -- Engine API abuse + advanced movement
   mission41, mission42, mission43,
-  mission65,    // GHOST MODE — FLAG_SOLID + camera-update RET-patch (LithTech engine API abuse)
+  mission65,    // GHOST MODE — FLAG_SOLID + camera-update RET-patch
   mission44, mission45, mission46,
+
+  // ============================================================
+  // TRACK 3 — SYSTEMS: see Codex for Windows API, PE format,
+  // manual mapping, D3D pipeline, IDA/x64dbg/ReClass workflows
+  // ============================================================
 ];
 export const MISSIONS_BY_ID = Object.fromEntries(MISSIONS.map(m => [m.id, m]));

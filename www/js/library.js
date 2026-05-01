@@ -4004,6 +4004,596 @@ p-&gt;hp = 9999;</code></pre>
       CreateRemoteThread. The external-trainer building blocks.</p>
     `,
   },
+
+  {
+    id: "windows-api-cheat-toolkit",
+    title: "The Windows API Cheat Toolkit",
+    brief: "OpenProcess, ReadProcessMemory, WriteProcessMemory, VirtualAllocEx, CreateRemoteThread. Cheat Engine under the hood.",
+    body: `
+      <h2>External vs Internal cheats</h2>
+      <p>Two architectural choices for game cheats:</p>
+
+      <ul>
+        <li><strong>EXTERNAL trainer</strong> — your code runs in a separate
+        process. You communicate with the game by reading/writing its memory
+        through Windows kernel-mediated APIs. Cheat Engine is an external tool.
+        Trainers like Cheat Engine's auto-assembler scripts are external.</li>
+        <li><strong>INTERNAL DLL</strong> — your code runs INSIDE the game's
+        process after injection. You access game memory via direct pointer
+        dereferences (no API calls). M24/M47 cover the DLL side.</li>
+      </ul>
+
+      <p>External cheats are easier to write, easier to detect, and slower
+      (every read crosses the kernel). Internal cheats are faster, harder
+      to detect, but more invasive (you have to inject first). Most modern
+      cheats use internal because anti-cheats block external memory access.</p>
+
+      <p>This article covers EXTERNAL — the Windows API toolkit. The next
+      article (<em>PE Format & DLL Injection</em>) covers internal injection.</p>
+
+      <h2>The five APIs you need</h2>
+
+      <p>Almost every external cheat uses these five (and a few helpers).
+      Memorize their signatures.</p>
+
+      <h3>OpenProcess — get a handle to the target</h3>
+      <pre><code>HANDLE OpenProcess(
+    DWORD dwDesiredAccess,    // what you want to do
+    BOOL  bInheritHandle,     // FALSE in 99% of cases
+    DWORD dwProcessId         // PID of the target
+);</code></pre>
+
+      <p>Returns a handle (an opaque integer the kernel uses to track your
+      access permissions). Common access flags:</p>
+
+      <ul>
+        <li><code>PROCESS_VM_READ</code> — needed for ReadProcessMemory</li>
+        <li><code>PROCESS_VM_WRITE</code> — needed for WriteProcessMemory</li>
+        <li><code>PROCESS_VM_OPERATION</code> — needed for VirtualAllocEx</li>
+        <li><code>PROCESS_CREATE_THREAD</code> — needed for CreateRemoteThread</li>
+        <li><code>PROCESS_ALL_ACCESS</code> — everything (may fail on protected
+        processes; some anti-cheats block this)</li>
+      </ul>
+
+      <p>Returns <code>NULL</code> on failure. Always check. <code>GetLastError()</code>
+      tells you why — most commonly <code>ERROR_ACCESS_DENIED</code> (anti-cheat
+      blocked you) or <code>ERROR_INVALID_PARAMETER</code> (PID doesn't exist).</p>
+
+      <pre><code>// Find the game's PID, then open it
+HANDLE hGame = OpenProcess(
+    PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION,
+    FALSE,
+    target_pid);
+if (hGame == NULL) {
+    printf("OpenProcess failed: %lu\\n", GetLastError());
+    return -1;
+}</code></pre>
+
+      <h3>ReadProcessMemory — read N bytes from the target</h3>
+      <pre><code>BOOL ReadProcessMemory(
+    HANDLE  hProcess,         // your handle from OpenProcess
+    LPCVOID lpBaseAddress,    // address IN THE TARGET to read from
+    LPVOID  lpBuffer,         // address IN YOUR PROCESS to write to
+    SIZE_T  nSize,            // bytes to read
+    SIZE_T* lpNumberOfBytesRead);  // out — actual bytes read</code></pre>
+
+      <p>This is what Cheat Engine's value scanner uses. To find the player's HP:</p>
+
+      <pre><code>int hp;
+SIZE_T bytesRead;
+if (!ReadProcessMemory(hGame, (LPCVOID)0x10F4F4, &amp;hp, sizeof(hp), &amp;bytesRead)) {
+    printf("RPM failed at 0x10F4F4: %lu\\n", GetLastError());
+    return -1;
+}
+printf("Player HP: %d\\n", hp);</code></pre>
+
+      <p>Common gotcha: <code>lpBaseAddress</code> is the address inside the
+      TARGET process. The address layout has nothing to do with your trainer's
+      address space. <code>lpBuffer</code> is in your trainer — typically a
+      stack variable or heap allocation in your code.</p>
+
+      <h3>WriteProcessMemory — write N bytes into the target</h3>
+      <pre><code>BOOL WriteProcessMemory(
+    HANDLE  hProcess,
+    LPVOID  lpBaseAddress,    // target address to write to
+    LPCVOID lpBuffer,         // source in your process
+    SIZE_T  nSize,
+    SIZE_T* lpNumberOfBytesWritten);</code></pre>
+
+      <p>The freeze-HP trainer in Cheat Engine is a loop of WPM. Set HP to
+      9999 every 50ms; the game keeps recomputing it but never gets a chance
+      to lower it before you write again.</p>
+
+      <pre><code>int new_hp = 9999;
+while (running) {
+    WriteProcessMemory(hGame, (LPVOID)0x10F4F4, &amp;new_hp, sizeof(new_hp), NULL);
+    Sleep(50);
+}</code></pre>
+
+      <p>That's a 5-line external HP freeze. Identical effect to ticking the
+      "freeze" checkbox in Cheat Engine.</p>
+
+      <h3>VirtualAllocEx — allocate memory inside the target</h3>
+      <pre><code>LPVOID VirtualAllocEx(
+    HANDLE hProcess,
+    LPVOID lpAddress,         // NULL = let kernel pick the address
+    SIZE_T dwSize,
+    DWORD  flAllocationType,  // MEM_COMMIT | MEM_RESERVE
+    DWORD  flProtect);        // PAGE_READWRITE / PAGE_EXECUTE_READWRITE</code></pre>
+
+      <p>Why you need this: to inject a DLL with LoadLibrary, you have to
+      pass it the DLL filename. But the filename string lives in YOUR
+      process — the target can't read it directly. You allocate memory in
+      the target, write the filename there, then call LoadLibraryA with
+      that pointer.</p>
+
+      <p>Alloc is also used to write SHELLCODE — small assembly stubs that
+      do whatever you can't accomplish with single-call APIs.</p>
+
+      <h3>CreateRemoteThread — run code inside the target</h3>
+      <pre><code>HANDLE CreateRemoteThread(
+    HANDLE hProcess,
+    LPSECURITY_ATTRIBUTES lpThreadAttributes,  // NULL
+    SIZE_T dwStackSize,                        // 0 = default
+    LPTHREAD_START_ROUTINE lpStartAddress,     // function to call
+    LPVOID lpParameter,                        // arg passed to function
+    DWORD  dwCreationFlags,                    // 0
+    LPDWORD lpThreadId);                       // out</code></pre>
+
+      <p>This spawns a thread inside the target process at an address you
+      specify. Critical detail: <code>lpStartAddress</code> must be valid
+      INSIDE the target's address space. You can't pass your trainer's
+      code address — different process.</p>
+
+      <p>The trick: <code>kernel32.dll</code> is loaded at the same address
+      in every Win32 process on a given system (it's required by the loader).
+      So <code>LoadLibraryA</code>'s address in your trainer equals
+      <code>LoadLibraryA</code>'s address in the target. Pass it as the
+      thread's start function and the DLL path as its argument:</p>
+
+      <pre><code>// Address of LoadLibraryA — same in target as in our process.
+HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+LPTHREAD_START_ROUTINE pLoadLibraryA =
+    (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryA");
+
+// Allocate space in target for the DLL path.
+const char* dll_path = "C:\\\\my_cheat.dll";
+SIZE_T path_len = strlen(dll_path) + 1;
+LPVOID remote_path = VirtualAllocEx(hGame, NULL, path_len,
+                                     MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+WriteProcessMemory(hGame, remote_path, dll_path, path_len, NULL);
+
+// Spawn a thread in target running LoadLibraryA(remote_path).
+HANDLE hThread = CreateRemoteThread(hGame, NULL, 0, pLoadLibraryA,
+                                     remote_path, 0, NULL);
+WaitForSingleObject(hThread, INFINITE);   // wait for LoadLibrary to finish
+
+CloseHandle(hThread);
+VirtualFreeEx(hGame, remote_path, 0, MEM_RELEASE);</code></pre>
+
+      <p>That's a complete DLL injector in 7 API calls. Most game cheats use
+      exactly this technique. Anti-cheats look for it specifically — that's
+      why <em>manual mapping</em> exists (next article).</p>
+
+      <h2>Finding the target process: Process32First / Process32Next</h2>
+
+      <p>OpenProcess takes a PID. Where do you get the PID? Walk the process
+      list:</p>
+
+      <pre><code>#include &lt;tlhelp32.h&gt;
+
+DWORD find_pid_by_name(const wchar_t* name) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32W entry = { sizeof(entry) };
+    if (Process32FirstW(snap, &amp;entry)) {
+        do {
+            if (wcscmp(entry.szExeFile, name) == 0) {
+                CloseHandle(snap);
+                return entry.th32ProcessID;
+            }
+        } while (Process32NextW(snap, &amp;entry));
+    }
+    CloseHandle(snap);
+    return 0;
+}
+
+DWORD pid = find_pid_by_name(L"ac_client.exe");
+if (pid == 0) {
+    printf("Game not running\\n");
+    return -1;
+}</code></pre>
+
+      <h2>Finding modules inside the target: Module32First / Module32Next</h2>
+
+      <p>The <code>0x10F4F4</code> in <code>ac_client.exe + 0x10F4F4</code>
+      is module-relative. To get the absolute address, you need ac_client.exe's
+      base in the target process:</p>
+
+      <pre><code>uintptr_t find_module_base(DWORD pid, const wchar_t* mod_name) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
+    MODULEENTRY32W entry = { sizeof(entry) };
+    uintptr_t base = 0;
+    if (Module32FirstW(snap, &amp;entry)) {
+        do {
+            if (wcscmp(entry.szModule, mod_name) == 0) {
+                base = (uintptr_t)entry.modBaseAddr;
+                break;
+            }
+        } while (Module32NextW(snap, &amp;entry));
+    }
+    CloseHandle(snap);
+    return base;
+}
+
+uintptr_t base = find_module_base(pid, L"ac_client.exe");
+uintptr_t hp_addr = base + 0x10F4F4;
+// ReadProcessMemory(hGame, (LPCVOID)hp_addr, ...);</code></pre>
+
+      <p>That's the M48 base discovery from the curriculum, in real
+      external-trainer code. The static offset (<code>0x10F4F4</code>) you
+      reverse-engineered in the simulator is the same byte offset you
+      hardcode here. Module base comes from the API.</p>
+
+      <h2>The complete external trainer skeleton</h2>
+
+      <p>Putting it together — a working freeze-HP trainer in ~50 lines:</p>
+
+      <pre><code>#include &lt;windows.h&gt;
+#include &lt;tlhelp32.h&gt;
+#include &lt;stdio.h&gt;
+
+DWORD find_pid_by_name(const wchar_t* name) { /* as above */ }
+uintptr_t find_module_base(DWORD pid, const wchar_t* mod) { /* as above */ }
+
+int main() {
+    DWORD pid = find_pid_by_name(L"ac_client.exe");
+    if (!pid) { printf("Game not running\\n"); return 1; }
+
+    HANDLE hGame = OpenProcess(
+        PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION,
+        FALSE, pid);
+    if (!hGame) { printf("OpenProcess: %lu\\n", GetLastError()); return 1; }
+
+    uintptr_t base = find_module_base(pid, L"ac_client.exe");
+    uintptr_t player_ptr_addr = base + 0x10F4F4;
+
+    // Resolve the player struct base by dereferencing the static cell.
+    uintptr_t player_struct = 0;
+    ReadProcessMemory(hGame, (LPCVOID)player_ptr_addr,
+                      &amp;player_struct, sizeof(player_struct), NULL);
+    if (!player_struct) { printf("Player not loaded yet\\n"); return 1; }
+
+    uintptr_t hp_addr = player_struct + 0xEC;   // HP offset in player struct
+    int new_hp = 9999;
+
+    printf("Freezing HP at 0x%p\\n", (void*)hp_addr);
+    while (true) {
+        WriteProcessMemory(hGame, (LPVOID)hp_addr,
+                           &amp;new_hp, sizeof(new_hp), NULL);
+        Sleep(50);
+    }
+
+    CloseHandle(hGame);
+    return 0;
+}</code></pre>
+
+      <p>That's a complete Cheat Engine equivalent for AssaultCube's HP. Same
+      trainer skeleton works for any game once you know the offsets.</p>
+
+      <h2>What Cheat Engine is doing under the hood</h2>
+
+      <p>Cheat Engine's value scan is essentially:</p>
+
+      <pre><code>// Pseudo-code — actual CE is more optimized
+for (auto&amp; region : EnumerateMemoryRegions(hGame)) {
+    if (region.Protect &amp; PAGE_READWRITE) {
+        std::vector&lt;BYTE&gt; buf(region.Size);
+        ReadProcessMemory(hGame, region.Base, buf.data(), region.Size, NULL);
+        for (size_t i = 0; i &lt; buf.size() - sizeof(int); i++) {
+            int* val = (int*)&amp;buf[i];
+            if (*val == search_value) {
+                results.push_back(region.Base + i);
+            }
+        }
+    }
+}</code></pre>
+
+      <p><code>VirtualQueryEx</code> enumerates memory regions; for each
+      committed read-write region, RPM the whole thing into a buffer; scan
+      the buffer for the value. The "next scan" feature filters results
+      against another full RPM.</p>
+
+      <p>The simulator's M01-M04 missions are this same workflow visualized.
+      Now you can do it programmatically.</p>
+
+      <h2>Common gotchas</h2>
+
+      <ul>
+        <li><strong>x86 vs x64</strong>: a 32-bit trainer can't write to a
+        64-bit game and vice versa. Match your build target to the game.</li>
+        <li><strong>Privilege escalation</strong>: some games run as Admin.
+        Your trainer must too — use <code>SeDebugPrivilege</code> or run as
+        Administrator. <code>OpenProcess</code> fails otherwise.</li>
+        <li><strong>Wide vs narrow strings</strong>: tlhelp32 has both ANSI
+        (Process32First) and wide (Process32FirstW) variants. Pick consistently;
+        most modern code uses the W variants.</li>
+        <li><strong>Always close handles</strong>: handle leaks cause weirder
+        bugs over time. <code>CloseHandle</code> on every <code>HANDLE</code>
+        you obtain.</li>
+        <li><strong>Anti-cheat blocks PROCESS_ALL_ACCESS</strong>: request
+        only the access you need. Some ACs flag PROCESS_ALL_ACCESS specifically.</li>
+      </ul>
+
+      <h2>What you can do now</h2>
+
+      <p>With these five APIs alone you can write any external trainer:</p>
+
+      <ul>
+        <li>Cheat Engine clone (RPM scanning loop)</li>
+        <li>Auto-aim trainer (RPM enemy positions, WPM crosshair)</li>
+        <li>Speed hack (WPM movement-rate cell)</li>
+        <li>DLL injector (VirtualAllocEx + WPM + CreateRemoteThread)</li>
+      </ul>
+
+      <p>Next article: <em>PE Format & DLL Injection Methods</em> — the
+      internal-cheat side. Once you can inject a DLL, you don't need RPM/WPM
+      anymore — direct pointer access becomes available.</p>
+    `,
+  },
+
+  {
+    id: "pe-format-dll-injection",
+    title: "PE Format & DLL Injection Methods",
+    brief: "How DLLs actually load. LoadLibrary, manual mapping, SetWindowsHookEx, thread hijacking — pick your detection trade-off.",
+    body: `
+      <h2>What a DLL actually is</h2>
+      <p>A DLL is a Windows-format binary file (the <strong>PE</strong> format —
+      "Portable Executable"). When the OS loader pulls a DLL into a process, it
+      doesn't just blast the bytes into memory. It walks the file's structure
+      and does specific transformations:</p>
+
+      <ol>
+        <li>Read PE headers, figure out total size needed</li>
+        <li>Allocate that much memory in the target process</li>
+        <li>Copy each <strong>section</strong> (.text, .data, .rdata, .reloc)
+        to its mapped address</li>
+        <li>Apply <strong>relocations</strong> if the DLL didn't load at its
+        preferred base</li>
+        <li>Resolve <strong>imports</strong> by looking up each imported
+        function's address in its source DLL</li>
+        <li>Call <code>DllMain</code> with <code>DLL_PROCESS_ATTACH</code></li>
+      </ol>
+
+      <p>Anti-cheats know exactly what step 6 looks like — they hook the
+      loader and inspect every DLL that runs DllMain. To bypass them, cheats
+      do steps 1-5 themselves and skip the loader entirely. That's
+      <strong>manual mapping</strong>. To understand it you need to understand
+      the format.</p>
+
+      <h2>PE Format — the structure</h2>
+
+      <pre><code>┌──────────────────────┐
+│ DOS Header (MZ)      │  Legacy stub: "This program cannot run in DOS mode."
+├──────────────────────┤
+│ NT Header            │  e_lfanew points here from DOS header
+│   ├ FileHeader       │  COFF: machine type, section count
+│   └ OptionalHeader   │  ImageBase, SizeOfImage, entry point, data dirs
+├──────────────────────┤
+│ Section Headers      │  one per section: name, RVA, size, file offset
+├──────────────────────┤
+│ .text                │  executable code (your DllMain etc)
+├──────────────────────┤
+│ .rdata               │  read-only data, imports descriptor, exports
+├──────────────────────┤
+│ .data                │  initialized writable data
+├──────────────────────┤
+│ .reloc               │  list of addresses needing fixup if rebased
+└──────────────────────┘</code></pre>
+
+      <h2>The fields you'll actually touch</h2>
+
+      <table>
+        <thead><tr><th>Field</th><th>Purpose</th><th>Why cheats care</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>OptionalHeader.ImageBase</code></td>
+            <td>The DLL's preferred load address</td>
+            <td>If the loader puts you elsewhere, every absolute pointer
+            in your code is wrong — needs relocation</td>
+          </tr>
+          <tr>
+            <td><code>OptionalHeader.SizeOfImage</code></td>
+            <td>How much memory you need allocated</td>
+            <td>VirtualAlloc this much before mapping</td>
+          </tr>
+          <tr>
+            <td><code>OptionalHeader.AddressOfEntryPoint</code></td>
+            <td>RVA of DllMain</td>
+            <td>What you call after mapping</td>
+          </tr>
+          <tr>
+            <td><code>DataDirectory[IMPORT]</code></td>
+            <td>Pointer to the imports table</td>
+            <td>Functions your DLL calls that the loader resolves
+            (LoadLibraryA, GetProcAddress, etc.)</td>
+          </tr>
+          <tr>
+            <td><code>DataDirectory[BASERELOC]</code></td>
+            <td>Pointer to the relocations table</td>
+            <td>List of every absolute address in .text that needs
+            adjustment if you rebase</td>
+          </tr>
+          <tr>
+            <td><code>DataDirectory[EXPORT]</code></td>
+            <td>Pointer to the exports table</td>
+            <td>Functions your DLL exposes to other code; cheat dev
+            calling its own exposed functions</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>RVA vs absolute addresses — the constant pain</h2>
+
+      <p>PE structures use <strong>RVA</strong> ("relative virtual address") —
+      offsets from the loaded image base. To convert RVA to a usable pointer:</p>
+
+      <pre><code>uintptr_t actual = (uintptr_t)mapped_base + rva;</code></pre>
+
+      <p>If your DLL's preferred ImageBase is <code>0x10000000</code> but the
+      loader maps it at <code>0x6A4F0000</code>, every absolute address in
+      your <code>.text</code> section is off by <code>0x5A4F0000</code>.
+      That's what relocations fix — they're a list of addresses inside .text
+      that need that delta added.</p>
+
+      <h2>Method 1: LoadLibrary injection</h2>
+
+      <p>The lazy version. Use the trainer skeleton from the Windows API
+      article — VirtualAllocEx the DLL path, WriteProcessMemory it,
+      CreateRemoteThread on LoadLibraryA. The OS does all the PE work for you.</p>
+
+      <p><strong>Detection profile:</strong></p>
+      <ul>
+        <li>The DLL appears in <code>EnumProcessModules</code> output (visible)</li>
+        <li>The DLL file exists on disk (file-system anti-cheats find it)</li>
+        <li><code>CreateRemoteThread</code> is hookable — anti-cheats see who
+        spawned the thread</li>
+        <li>DllMain runs in the loader; anti-cheat hooks ntdll!LdrLoadDll
+        sees every DLL that loads</li>
+      </ul>
+
+      <p>Easy, fast, very detectable. Fine for educational use against the
+      simulator; production cheats moved past this years ago.</p>
+
+      <h2>Method 2: SetWindowsHookEx — the legacy back door</h2>
+
+      <p>Windows ships a system-wide message-hook API used by accessibility
+      tools and screen recorders. Once you set a hook, your DLL is loaded
+      into every process that processes a matching message:</p>
+
+      <pre><code>HHOOK SetWindowsHookExA(
+    int       idHook,         // WH_KEYBOARD, WH_MOUSE, etc.
+    HOOKPROC  lpfn,           // hook function
+    HINSTANCE hmod,           // YOUR DLL's module handle
+    DWORD     dwThreadId);    // 0 = system-wide</code></pre>
+
+      <p>Workflow:</p>
+      <ol>
+        <li>Compile your cheat into a DLL that exports a HOOKPROC.</li>
+        <li>In your trainer, <code>LoadLibrary</code> the DLL into yourself.</li>
+        <li>Call <code>SetWindowsHookExA(WH_KEYBOARD, your_proc, hMod, 0)</code>.</li>
+        <li>Wait for the target to handle a keyboard message.</li>
+        <li>Windows loads your DLL into the target's process and runs your hook.</li>
+      </ol>
+
+      <p><strong>Detection profile:</strong> uncommon for non-tools to do this.
+      Modern AC hooks SetWindowsHookEx and flags non-allowlisted callers.</p>
+
+      <h2>Method 3: Manual Mapping — the production cheat technique</h2>
+
+      <p>Skip the OS loader entirely. Your trainer reads the DLL file,
+      parses the PE format itself, and replicates everything the loader
+      would do — but quietly:</p>
+
+      <pre><code>// Pseudo-code
+1. Open the DLL file, read it into memory in your trainer
+2. Parse DOS + NT headers to get SizeOfImage, sections, etc.
+3. VirtualAllocEx target with SizeOfImage bytes, RWX
+4. For each section in the file:
+       WriteProcessMemory(target, mapped_base + section.VirtualAddress,
+                          file_buf + section.PointerToRawData,
+                          section.SizeOfRawData)
+5. Walk the relocations table. For each fixup:
+       relocate_address = mapped_base + reloc.RVA
+       delta = mapped_base - file_image_base
+       *(uintptr_t*)relocate_address += delta  (via WriteProcessMemory)
+6. Walk the imports table. For each imported function:
+       resolve in target's loaded modules (kernel32 etc)
+       write the resolved address into the IAT slot in target memory
+7. Call DllMain via shellcode in the target:
+       - VirtualAllocEx for shellcode
+       - shellcode calls DllMain(mapped_base, DLL_PROCESS_ATTACH, NULL)
+       - CreateRemoteThread on the shellcode</code></pre>
+
+      <p><strong>Detection profile:</strong></p>
+      <ul>
+        <li>DLL does NOT appear in <code>EnumProcessModules</code> — the loader
+        was never invoked, so the OS doesn't know the DLL is there</li>
+        <li>No file on disk needed (you can pull the DLL from RAM, embedded
+        resource, network)</li>
+        <li>No ntdll!LdrLoadDll hook fires</li>
+        <li><code>CreateRemoteThread</code> still happens (for the shellcode
+        stub) — some ACs catch this</li>
+        <li>VAD (Virtual Address Descriptor) entries reveal RWX private
+        commits — kernel ACs scan for these</li>
+      </ul>
+
+      <p>Substantially harder to detect. Most game cheats from ~2014 onward
+      use manual mapping or one of its variants.</p>
+
+      <h2>Method 4: Thread hijacking</h2>
+
+      <p>Avoid <code>CreateRemoteThread</code> by hijacking an existing thread:</p>
+
+      <ol>
+        <li><code>SuspendThread</code> on a target thread</li>
+        <li><code>GetThreadContext</code> — capture EIP/RIP</li>
+        <li>Allocate shellcode in target that does your work then jumps back
+        to the original EIP</li>
+        <li><code>SetThreadContext</code> — point EIP at your shellcode</li>
+        <li><code>ResumeThread</code> — original thread runs your code, then
+        continues normally</li>
+      </ol>
+
+      <p><strong>Detection profile:</strong> <code>SetThreadContext</code> from
+      a non-debugger process is unusual; flagged by good ACs but harder than
+      CreateRemoteThread.</p>
+
+      <h2>Comparison table</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Visible in PEB module list</th>
+            <th>Needs file on disk</th>
+            <th>CreateRemoteThread</th>
+            <th>Detection difficulty</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>LoadLibrary</td>             <td>Yes</td> <td>Yes</td> <td>Yes</td> <td>Trivial</td></tr>
+          <tr><td>SetWindowsHookEx</td>        <td>Yes</td> <td>Yes</td> <td>No</td>  <td>Easy</td></tr>
+          <tr><td>Manual Mapping</td>          <td>No</td>  <td>No</td>  <td>Optional</td> <td>Hard</td></tr>
+          <tr><td>Thread Hijacking</td>        <td>Yes (if LL'd) / No (if MM'd)</td> <td>—</td> <td>No</td>  <td>Medium</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Why M45 (module hide) matters</h2>
+
+      <p>M45 in the curriculum hooks <code>EnumProcessModules</code> to filter
+      out the cheat DLL. That's necessary specifically for Method 1
+      (LoadLibrary) — your DLL is in the module list and any AC scan finds it.
+      Manual-mapped DLLs don't need M45 because they never appear in the list.</p>
+
+      <p>Manual mapping makes the M45 lesson a defensive workaround for the
+      lazy injection method.</p>
+
+      <h2>What you can write now</h2>
+
+      <p>Combining this article with the Windows API toolkit:</p>
+
+      <ul>
+        <li>External trainer with RPM/WPM</li>
+        <li>LoadLibrary DLL injector</li>
+        <li>Manual-mapping DLL injector (production tier)</li>
+        <li>SetWindowsHookEx-based loader for system-wide cheats</li>
+        <li>Thread-hijacking shellcode runner</li>
+      </ul>
+
+      <p>Next articles: <em>DirectX Pipeline & Hooking</em>,
+      <em>IDA Pro Workflow</em>, <em>ReClass.NET Workflow</em>.</p>
+    `,
+  },
 ];
 
 export class Library {
