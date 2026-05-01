@@ -5729,6 +5729,125 @@ auto addr = aob_scan(module, "56 8B F1 D9 05 ?? ?? ?? ?? D8 65 ?? D9 9E 00 04 00
       Arms cheat scene maps to a curriculum mission. The simulator gives you
       hands-on practice with the same primitives.</p>
 
+      <h3>Apex features: specific historical examples</h3>
+      <p>A few signature techniques from the era deserve their own notes:</p>
+
+      <ul>
+        <li><strong>Lifetaker</strong> (GameAnarchy signature). Combined HP
+        Lock at 0 (forced HP=0 for everyone in the lobby) with rapid
+        kill-credit cycling. The lobby would die in seconds, the cheater
+        would harvest thousands of kill credits. Mechanically: damage
+        packet injection (M58 OPK) targeting every player ID in a tight
+        loop, plus an HP-lock variant that pinned victim HP at 0 to
+        prevent respawn timer races. Combat Arms wiki documents
+        Lifetaker as a public name for this feature class.</li>
+
+        <li><strong>Spawn Shield exploit</strong> (Godmode variants).
+        Combat Arms has a legitimate game feature: when you spawn, you
+        get a few seconds of damage immunity ("spawn shield") so you
+        don't get instantly killed by spawn-camping. The exploit:
+        intercept the timer cell that decrements the spawn-shield
+        duration, and freeze it. Result: spawn-shield never expires;
+        you have legitimate damage immunity for the entire match.
+        This is a really clean teaching example because the cheat
+        abuses a LEGITIMATE GAME FEATURE rather than introducing a
+        novel exploit. Often easier than building godmode from
+        scratch.</li>
+
+        <li><strong>OPK + Teleportation chain</strong> (apex AS feature).
+        First teleport every other player's coordinates to a single
+        point on the map. Then drop a single grenade at that point.
+        Server processes damage for everyone clustered there. Whole
+        lobby dies. Combines damage-packet injection (M58) with
+        position-spoof injection ON OTHERS' players (more aggressive
+        than M75 anti-aim, which only spoofs your own pos).</li>
+
+        <li><strong>True Respawn / Unlimited Respawn</strong>. Direct
+        engine call (M50 territory) to <code>PlayerRespawn()</code>
+        bypassing the server-tracked respawn timer. Die, re-emerge
+        immediately — even mid-firefight.</li>
+
+        <li><strong>Counter-ESP</strong> (a variant of M76 stealth).
+        Two mechanisms exist for the same effect. M76's mechanism:
+        server-side flag stops broadcasting your position to other
+        clients. The variant: hook the GAME's render/network
+        functions on the cheater's OWN client so it doesn't EMIT the
+        broadcast in the first place. Either works; M76 is usually
+        safer because it kills the data at the server, not just the
+        local emission.</li>
+
+        <li><strong>Anti-cheat emulation</strong> (M79 territory).
+        Capture the AC's encrypted heartbeat once. Replay it (or
+        forge a clean version) every interval. AC server's monitoring
+        layer sees a cooperative client forever. This was the killer
+        feature that let elite cheats run OPENLY on Combat Arms while
+        HackShield logged "no anomalies."</li>
+      </ul>
+
+      <h2>Technical evolution timeline</h2>
+
+      <p>Per the historical brief, the cheat scene's technical
+      sophistication moved through identifiable phases:</p>
+
+      <table>
+        <thead><tr><th>Era</th><th>Dominant technique</th><th>Counter-move</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>~2008-2009</td>
+            <td>External cheats (RPM/WPM from outside the game process)</td>
+            <td>HackShield Pro detects external attachments → cheats migrate to internal</td>
+          </tr>
+          <tr>
+            <td>2009-2011</td>
+            <td>Internal DLL cheats with engine function hooks. <strong>"Direct
+            function hijacking"</strong>: replacing the game's own
+            <code>FireWeapon()</code>, <code>CalculateDamage()</code> with
+            cheat-controlled logic. The Great Hacker War peaks here.</td>
+            <td>Nexon adds BlackCiph3r as a second AC layer (2011) — CPU
+            and memory monitoring</td>
+          </tr>
+          <tr>
+            <td>2011-2013</td>
+            <td><strong>Anti-cheat emulation</strong>: cheats hook the AC's
+            outgoing reports and replace them with "all-clear" signals.
+            "When the server asked, 'Is everything okay?', the cheat would
+            send back a faked 'All Clear' signal, keeping the real hacks
+            hidden." (M79 in this curriculum.) Apex packet manipulation:
+            Lifetaker, OPK, Teleport-Kill, server-side godmode, anti-aim.</td>
+            <td>Nexon files lawsuits — DrUnKeN ChEeTaH / GameAnarchy 2013
+            ($1.4M judgment)</td>
+          </tr>
+          <tr>
+            <td>2013-2021</td>
+            <td>Game declines. Cheat scene fragments. Surviving shops
+            keep updating but volume of innovation drops.</td>
+            <td>Nexon lets Combat Arms drift; later sells</td>
+          </tr>
+          <tr>
+            <td>2021</td>
+            <td>Combat Arms migrates to BattlEye in 2021 — the Western
+            anti-cheat industry's signature kernel-level system. Still
+            doesn't reverse the game's overall decline.</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Why "internal" beat "external" decisively</h3>
+      <p>One concept the historical brief surfaces sharper than I
+      initially framed it: <strong>exploit priority</strong>. Internal
+      cheats run INSIDE the game process, sharing its memory space. Their
+      hooks fire on the same execution thread as the game's own logic.
+      That means cheat code can run BEFORE the game's logic — modifying
+      view angles, intercepting fire commands, rewriting packets — and
+      gets "first rights" on every decision. External cheats only see
+      the OUTPUT of the game's logic; they react after the fact and
+      fundamentally lose the timing race.</p>
+
+      <p>This priority is what made AS / GA's cheats feel "more real"
+      than freeware. They weren't reacting to the game; they were
+      partially BEING the game.</p>
+
       <h2>The Great Hacker War (2009-2011)</h2>
 
       <p>According to historical accounts, AS and GA ran a sustained

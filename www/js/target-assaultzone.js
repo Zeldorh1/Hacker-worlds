@@ -259,6 +259,25 @@ export class AssaultZone {
       damagePerHit: 8,
     };
 
+    // M79 — anti-cheat reporter. Periodically the AC client sends a
+    // status report to the AC server: "is the player running cheats?"
+    // The server compares reports over time and trips violations when
+    // the report shows tampering. The cheat's bypass: hook the
+    // outgoing report packet, overwrite all flags with 'clean'. The
+    // AC server keeps trusting the report; violation count never moves.
+    // This is an anti-cheat-spoofing technique class (not detection
+    // evasion — outright lying to the AC's monitoring layer).
+    this.acReporter = {
+      enabled: false,
+      intervalMs: 700,
+      lastReportAt: 0,
+      violations: 0,
+      threshold: 5,
+      // For mission scoring: counts how many spoofed reports vs honest
+      acceptedClean: 0,    // report said clean, AC trusted it
+      detectedDirty: 0,    // report said dirty, violation registered
+    };
+
     // M33 — behavioral detector. Tracks recent crosshair-target
     // changes. Bots that snap to a new target every frame (zero
     // reaction delay) generate a stream of instant changes that
@@ -816,6 +835,10 @@ export class AssaultZone {
     this.snipers.enabled = false;
     this.snipers.hitCount = 0;
     this.snipers.missCount = 0;
+    this.acReporter.enabled = false;
+    this.acReporter.violations = 0;
+    this.acReporter.acceptedClean = 0;
+    this.acReporter.detectedDirty = 0;
     this.server.canonicalPos.x = this.player.x;
     this.server.canonicalPos.y = this.player.y;
     codeSegment.reset();
@@ -1015,6 +1038,18 @@ export class AssaultZone {
     this.server.canonicalPos.y = this.player.y;
   }
   disableSnipers() { this.snipers.enabled = false; }
+
+  // M79 — turn on the AC reporter. Honest report by default; cheat's
+  // job is to install a packet hook that rewrites outgoing 'ac_report'
+  // packets to all-clear before they reach the AC server.
+  enableACReporter() {
+    this.acReporter.enabled = true;
+    this.acReporter.violations = 0;
+    this.acReporter.acceptedClean = 0;
+    this.acReporter.detectedDirty = 0;
+    this.acReporter.lastReportAt = performance.now();
+  }
+  disableACReporter() { this.acReporter.enabled = false; }
 
   // M40 — periodically simulate a spectator joining/leaving.
   // Emits 'spectator_joined' / 'spectator_left' recv packets.
@@ -1555,6 +1590,48 @@ export class AssaultZone {
       // Schedule next audit with fresh jitter.
       const jitter = (Math.random() - 0.5) * this.frameAudit.jitterMs;
       this.frameAudit.nextAuditAt = now + this.frameAudit.baseIntervalMs + jitter;
+    }
+
+    // M79 — AC reporter. Every intervalMs the AC client emits a
+    // status report (a packet) describing current cheat state. The
+    // packet flows through DLL send-hooks (the player's bypass point)
+    // before the AC server reads it. Cheat reports honestly = AC
+    // logs violation. Cheat reports cleanly = AC trusts it.
+    if (this.acReporter.enabled && now - this.acReporter.lastReportAt > this.acReporter.intervalMs) {
+      this.acReporter.lastReportAt = now;
+      const dll2 = (typeof window !== "undefined" && window.__hw)
+        ? window.__hw.dll : null;
+      // Build the honest report based on real cheat state.
+      const realState = {
+        type: "ac_report",
+        espActive: !!this.espActive,
+        hpFrozen: memory.isFrozen(this.addrHP),
+        ammoFrozen: memory.isFrozen(this.addrAmmo),
+        renderHookCount: (dll2 && dll2.renderHooks) ? dll2.renderHooks.length : 0,
+        cheatCount: (dll2 && dll2.cheats) ? dll2.cheats.length : 0,
+        t: now,
+      };
+      const isActuallyDirty = realState.espActive || realState.hpFrozen ||
+        realState.ammoFrozen || realState.renderHookCount > 0;
+      // Send through DLL send-hook pipeline — cheat can rewrite.
+      const reported = this._sendPacket(realState);
+      if (!reported) {
+        // Hook dropped the packet entirely; AC server gets no report
+        // (treat as a quiet violation since AC notices missing reports).
+        this.acReporter.violations++;
+        return;
+      }
+      const reportSaysDirty = !!(reported.espActive || reported.hpFrozen ||
+        reported.ammoFrozen || (reported.renderHookCount | 0) > 0);
+      if (isActuallyDirty && reportSaysDirty) {
+        // Honest report of cheats — AC logs violation.
+        this.acReporter.violations++;
+        this.acReporter.detectedDirty++;
+      } else if (isActuallyDirty && !reportSaysDirty) {
+        // Cheats running but report claims clean — AC fooled, no violation.
+        this.acReporter.acceptedClean++;
+      }
+      // (Clean+clean and clean+dirty cases are uninteresting.)
     }
 
     // M75/M76/M77 — sniper fire. Enemies "fire" at the server's
