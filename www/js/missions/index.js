@@ -52,6 +52,8 @@ import { mission51 } from "./mission-51.js";
 import { mission52 } from "./mission-52.js";
 import { mission53 } from "./mission-53.js";
 import { mission54 } from "./mission-54.js";
+import { mission55 } from "./mission-55.js";
+import { mission56 } from "./mission-56.js";
 import { mission64 } from "./mission-64.js";
 import { mission65 } from "./mission-65.js";
 
@@ -77,7 +79,10 @@ export const MISSIONS = [
   mission18, mission19, mission20,
   mission21, mission22, mission23, mission24,
   mission47,    // DLL ANATOMY — taught here so M24's template makes sense
-  mission25, mission26, mission27, mission28, mission29,
+  mission25, mission26,
+  mission55,    // CHAMS + SKELETON ESP — render-hook variants beyond M26's box
+  mission56,    // WIREFRAME WALLS — render-state manipulation (D3DRS_FILLMODE)
+  mission27, mission28, mission29,
   mission30, mission31, mission32,
   mission33, mission34, mission35, mission36,
   mission37, mission38,

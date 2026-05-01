@@ -489,6 +489,10 @@ export class AssaultZone {
     this._rangeCheckBlocked = false;
     this.weapon.rangeLimit = 0;
 
+    // M56 — render-state flag. When false, walls draw outlines only
+    // (D3DRS_FILLMODE wireframe equivalent).
+    this.wallFillEnabled = true;
+
     this.paused = false;
     this._pausedAt = 0;
 
@@ -579,6 +583,18 @@ export class AssaultZone {
       // simulator memory. Real engines do the equivalent: verify the
       // pointer references valid mapped memory before deref.
       valid_pointer: (addr) => memory.cells.has(addr),
+      // M56 — D3D-style render-state setter. Real engine equivalent:
+      // IDirect3DDevice9::SetRenderState(D3DRS_FILLMODE, ...). Cheats
+      // hook this to force wireframe / disable depth-test / etc. The
+      // simulator exposes a small whitelist of state flags missions
+      // can flip — wall_fill maps directly to wallFillEnabled.
+      set_render_state: (key, value) => {
+        if (key === "wall_fill") {
+          this.wallFillEnabled = !!value;
+          return { ok: true, applied: { wall_fill: this.wallFillEnabled } };
+        }
+        return { ok: false, reason: "unknown_render_state" };
+      },
       // M50 demo: instant respawn. In LithTech this would be a direct
       // call to the engine's PlayerRespawn function. Bypasses the
       // RESPAWN_DELAY_MS countdown the normal death-handler enforces.
@@ -679,6 +695,8 @@ export class AssaultZone {
     this.weapon.rangeLimit = 0;
     this._lastFireDistance = 0;
     this._rangeCheckBlocked = false;
+    // M56 — restore wall fills.
+    this.wallFillEnabled = true;
     this.player.noClip = 0;
     memory.setFrozen(this.addrPlayerNoClip, false);
     this.behavioral.enabled = false;
@@ -1695,13 +1713,20 @@ export class AssaultZone {
     for (let y = 0; y < MAP_H; y++) {
       for (let x = 0; x < MAP_W; x++) {
         if (this.map[y][x] === 1) {
-          ctx.fillStyle = "#3a2f1d";
-          ctx.fillRect(x * T, y * T, T, T);
+          // M56 — wireframe wall mode. When wallFillEnabled is false,
+          // walls render outlines only (no fill, no brick lines), the
+          // 2D-sim equivalent of D3DRS_FILLMODE = D3DFILL_WIREFRAME.
+          if (this.wallFillEnabled !== false) {
+            ctx.fillStyle = "#3a2f1d";
+            ctx.fillRect(x * T, y * T, T, T);
+          }
           ctx.strokeStyle = "#5a4a30";
           ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1);
-          // brick lines
-          ctx.fillStyle = "#1f1a10";
-          ctx.fillRect(x * T, y * T + Math.floor(T / 2), T, 1);
+          if (this.wallFillEnabled !== false) {
+            // brick lines
+            ctx.fillStyle = "#1f1a10";
+            ctx.fillRect(x * T, y * T + Math.floor(T / 2), T, 1);
+          }
         } else {
           // floor with subtle grid
           ctx.fillStyle = ((x + y) & 1) ? "#14110a" : "#181410";
