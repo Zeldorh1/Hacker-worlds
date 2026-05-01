@@ -58,6 +58,7 @@ import { mission58 } from "./mission-58.js";
 import { mission59 } from "./mission-59.js";
 import { mission64 } from "./mission-64.js";
 import { mission65 } from "./mission-65.js";
+import { mission66 } from "./mission-66.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
@@ -71,6 +72,7 @@ export const MISSIONS = [
   mission48,    // STATIC BASE DISCOVERY — natural follow-up to M08 ptr scan
   mission50,    // LITHTECH ENGINE CALLS — once you can find addresses (M48), call them
   mission51,    // SERVER-TRUSTED COMMAND IDS — magic packet exploit, the LithTech ID_God_Mode pattern
+  mission66,    // MULTI-FIELD PACKETS — CAutoMessage typed-field builder pattern
   mission52,    // PATCH-RENAME ANTI-PATTERN — Nexon's failed fix strategy (153//404//200)
   mission53,    // (DEFENSIVE) AUTH ON PRIVILEGED HANDLERS — the only correct fix
   mission09,

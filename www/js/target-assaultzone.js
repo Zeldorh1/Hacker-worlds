@@ -571,16 +571,36 @@ export class AssaultZone {
                      speedMult: 1, infiniteAmmo: false };
     this.engine = {
       // ID_God_Mode-style packet send — routes through the simulator's
-      // server handler table. M51 lesson: send a magic byte, server
-      // honors it. M53 lesson: server checks session.privileged first.
-      send_to_server: (id, opts) => {
-        const entry = this.serverHandlers.get(id | 0);
+      // server handler table. Two argument shapes:
+      //   send_to_server(id, opts)  — simple single-byte ID + opts
+      //   send_to_server(msg)       — CAutoMessage from new_message();
+      //                               first field's value is the ID,
+      //                               rest are passed to the handler
+      // M51 lesson: send a magic byte, server honors it. M66 lesson:
+      // multi-field packets carry richer payload (target_id, etc).
+      send_to_server: (idOrMsg, opts) => {
+        let id, payload;
+        if (idOrMsg && idOrMsg._msg) {
+          // CAutoMessage form — extract id from first field, rest = payload.
+          if (!idOrMsg.fields || idOrMsg.fields.length === 0) {
+            return { ok: false, reason: "empty_message" };
+          }
+          id = idOrMsg.fields[0].v | 0;
+          payload = { fields: idOrMsg.fields.slice(1) };
+        } else {
+          id = idOrMsg | 0;
+          payload = opts || {};
+        }
+        const entry = this.serverHandlers.get(id);
         if (!entry) return { ok: false, reason: "unknown_id" };
         if (this.serverRequireAuth && entry.auth && !this.session.privileged) {
           this.serverDeniedCount = (this.serverDeniedCount | 0) + 1;
           return { ok: false, reason: "auth_required" };
         }
-        try { entry.handler(this.session, opts || {}); return { ok: true }; }
+        try {
+          const result = entry.handler(this.session, payload);
+          return { ok: true, result };
+        }
         catch (e) { return { ok: false, reason: e.message }; }
       },
       // ValidPointer mirror — checks if an address has a binding in

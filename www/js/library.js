@@ -3727,6 +3727,283 @@ HRESULT HOOKED_AcquireNextFrame(UINT ms, ..., IDXGIResource** ppRes) {
       hand back a sanitized result. That's the lesson M49 drills.</p>
     `,
   },
+
+  {
+    id: "cpp-function-pointers-conventions",
+    title: "C++ for Cheat Devs: Function Pointers, Typedefs, Calling Conventions",
+    brief: "Why every cheat starts with 'typedef ret_t(*tFn)(args); tFn pFn = (tFn)ADDR;'. The C++ that makes the magic readable.",
+    body: `
+      <h2>Why this article exists</h2>
+      <p>Every mission template that calls an engine function looks like this:</p>
+
+      <pre><code>typedef void(*tSendToServer)(ILTMessage_Read*, uint32_t flags);
+tSendToServer pSendToServer = (tSendToServer)ADDR_SENDTOSERVER;
+pSendToServer(msg, MESSAGE_GUARANTEED);</code></pre>
+
+      <p>Three lines. Each one does something specific. If you can't read each
+      one independently, you can't write your own when the next game ships. This
+      article makes it boring.</p>
+
+      <h2>Step 1: what a function pointer IS</h2>
+
+      <p>In compiled code, a function lives at a specific address. <code>main</code>
+      is at some <code>0x401000</code>, <code>printf</code> is in
+      <code>msvcrt.dll</code> at some address that depends on where Windows
+      loaded that DLL this run. When you write <code>printf("hi")</code>, the
+      compiler emits a CALL instruction that jumps to <code>printf</code>'s
+      address.</p>
+
+      <p>A <strong>function pointer</strong> is just a variable that holds an
+      address you intend to call. Same as <code>int* p</code> holds an address
+      you intend to read/write — except now the bytes at that address are
+      executable instructions.</p>
+
+      <pre><code>// "p is a pointer to a function that takes int and returns int"
+int (*p)(int);
+
+// Point it at a real function:
+int square(int x) { return x * x; }
+p = &amp;square;       // or just 'p = square;'
+
+// Call through the pointer:
+int result = p(7);   // result == 49</code></pre>
+
+      <p>Reading the declaration: start with the variable name, work outward.
+      <code>p</code> is the name. <code>(*p)</code> says <em>p is a pointer</em>.
+      <code>(*p)(int)</code> says <em>p is a pointer to something taking int</em>.
+      <code>int (*p)(int)</code> says <em>p is a pointer to a function taking int
+      and returning int</em>. The parens around <code>*p</code> are critical —
+      without them you'd have <code>int *p(int)</code>, which is a function
+      <em>declaration</em>, not a pointer.</p>
+
+      <h2>Step 2: typedef makes it readable</h2>
+
+      <p>Once you've written that declaration once, you don't want to keep
+      doing it. A typedef gives a function-pointer type a name:</p>
+
+      <pre><code>// Without typedef:
+int (*compare)(int, int) = &amp;my_compare_fn;
+
+// With typedef:
+typedef int (*compare_fn_t)(int, int);
+compare_fn_t compare = &amp;my_compare_fn;</code></pre>
+
+      <p>That second form is what every cheat uses. Read
+      <code>typedef int (*compare_fn_t)(int, int)</code> as: "make a new type
+      called <code>compare_fn_t</code> which is a pointer to a function taking
+      two ints and returning int."</p>
+
+      <p>Once you've done that, casting a raw address to that type is one line:</p>
+
+      <pre><code>compare_fn_t compare = (compare_fn_t)0x401000;
+compare(3, 5);   // calls whatever code lives at 0x401000</code></pre>
+
+      <p>That's the whole "typedef + ADDR cast + invoke" pattern. Three steps:</p>
+
+      <ol>
+        <li><strong>Typedef the signature</strong> — give the function shape a name</li>
+        <li><strong>Cast the address</strong> — tell the compiler "treat this number as that type"</li>
+        <li><strong>Invoke</strong> — call through the pointer like a normal function</li>
+      </ol>
+
+      <h2>Step 3: but WHICH signature?</h2>
+
+      <p>Here's where most beginners get burned. The signature you typedef has
+      to match the real function exactly. If the real function takes three
+      arguments and yours only declares two, the cheat crashes — because
+      arguments are pushed onto the stack in a specific order, and a wrong
+      typedef means the called function reads garbage off the stack.</p>
+
+      <p>How do you know the real signature? Three sources:</p>
+
+      <ul>
+        <li><strong>SDK headers</strong> — Combat Arms used LithTech, whose SDK
+        headers leaked. <code>SendToServer</code> takes
+        <code>(ILTMessage_Read*, uint32)</code>. You read the header.</li>
+        <li><strong>Disassembly</strong> — IDA Pro / Ghidra inspect the function's
+        prologue. They count argument size from <code>add esp, N</code> at the
+        end and infer the signature.</li>
+        <li><strong>Trial and error</strong> — try one signature, watch it crash,
+        adjust. Slow and dangerous.</li>
+      </ul>
+
+      <h2>Step 4: calling conventions — the part everyone forgets</h2>
+
+      <p>This is where 90% of "I made a typedef and it's still crashing"
+      mysteries come from. <strong>Calling convention</strong> is the contract
+      for HOW arguments get passed to a function.</p>
+
+      <p>Three big ones on x86:</p>
+
+      <table>
+        <thead>
+          <tr><th>Convention</th><th>Args go where</th><th>Who cleans the stack</th><th>Used by</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>__cdecl</code></td>
+            <td>Stack (right-to-left)</td>
+            <td><strong>Caller</strong></td>
+            <td>C runtime, most C functions</td>
+          </tr>
+          <tr>
+            <td><code>__stdcall</code></td>
+            <td>Stack (right-to-left)</td>
+            <td><strong>Callee</strong></td>
+            <td>Windows API (kernel32, user32)</td>
+          </tr>
+          <tr>
+            <td><code>__thiscall</code></td>
+            <td>this in <code>ECX</code>, args on stack</td>
+            <td>Callee</td>
+            <td>C++ class member functions (MSVC)</td>
+          </tr>
+          <tr>
+            <td><code>__fastcall</code></td>
+            <td>First two in <code>ECX</code> + <code>EDX</code>, rest on stack</td>
+            <td>Callee</td>
+            <td>Performance-critical functions, some compilers default</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>If your typedef says <code>__cdecl</code> but the real function is
+      <code>__stdcall</code>, the stack pointer ends up in the wrong place
+      after the call. Your code crashes a few instructions later when something
+      else tries to use the stack.</p>
+
+      <p>How you specify it in C++:</p>
+
+      <pre><code>// __stdcall - Windows API style
+typedef BOOL (__stdcall *tCloseHandle)(HANDLE);
+tCloseHandle pCloseHandle = (tCloseHandle)addr;
+
+// __thiscall - calling a C++ method by address
+typedef void (__thiscall *tDoStuff)(void* thisPtr, int arg);
+tDoStuff pDoStuff = (tDoStuff)addr;
+pDoStuff(some_object, 42);   // 'thisPtr' is the C++ 'this'
+
+// __fastcall
+typedef int (__fastcall *tFast)(int a, int b);</code></pre>
+
+      <h2>Step 5: x64 changes everything</h2>
+
+      <p>On x86-64 Windows, there's basically one calling convention
+      (<code>__fastcall</code>-ish) and the keywords are decorative — the
+      compiler ignores them. First four args go in <code>RCX</code>,
+      <code>RDX</code>, <code>R8</code>, <code>R9</code>; rest on the stack.
+      Return in <code>RAX</code>.</p>
+
+      <p>Linux x86-64 uses <code>RDI</code>, <code>RSI</code>, <code>RDX</code>,
+      <code>RCX</code>, <code>R8</code>, <code>R9</code>. Different. If you're
+      porting cheats between platforms, you re-typedef.</p>
+
+      <p>For x86-32 (where most older game cheats target), the four conventions
+      above genuinely matter and IDA Pro will show you which one is in use.</p>
+
+      <h2>Step 6: vtables — the C++ method-call shortcut</h2>
+
+      <p>When LithTech code says <code>g_LTClient->Common()</code>, that's a
+      <strong>virtual method call</strong>. <code>g_LTClient</code> is a pointer
+      to an object whose first field is a hidden <strong>vtable pointer</strong> —
+      another pointer, but to an array of function pointers, one per virtual
+      method.</p>
+
+      <pre><code>class CLTClient {
+public:
+    virtual ICommon* Common() = 0;            // first virtual method
+    virtual void SendToServer(...) = 0;       // second
+    virtual bool ValidPointer(...) = 0;       // third
+    // ...
+};
+
+// The compiler emits this object layout:
+//   offset 0:  vtable pointer  (4 or 8 bytes)
+//   offset 4:  first member field
+//   offset 8:  second member field
+//   ...
+
+// And the vtable looks like:
+//   offset 0:  &amp;Common
+//   offset 4:  &amp;SendToServer
+//   offset 8:  &amp;ValidPointer
+//   ...
+
+// When you call g_LTClient->Common(), the compiler emits:
+//   load vtable_ptr from *g_LTClient
+//   load Common_addr from vtable_ptr[0]
+//   call Common_addr  (with g_LTClient in ECX as 'this')</code></pre>
+
+      <p>Why this matters for cheats: if you have a pointer to a C++ object,
+      you can call its virtual methods <em>by index</em> without a header file:</p>
+
+      <pre><code>// Generic vtable invoker
+template&lt;typename T&gt;
+T call_vtable(void* obj, int index, /* args */ ...) {
+    void** vtable = *(void***)obj;
+    return ((T(__thiscall*)(void*, /* args */))vtable[index])(obj, /* args */);
+}
+
+// Call the second method (index 1) of g_LTClient with no args:
+call_vtable&lt;void&gt;(g_LTClient, 1, my_msg, MESSAGE_GUARANTEED);</code></pre>
+
+      <p>This is how cheats call C++ methods on game objects without having
+      the source — they reverse-engineer the vtable index in IDA Pro and
+      hardcode it.</p>
+
+      <h2>Step 7: structs and offsets — reading game memory</h2>
+
+      <p>The other half of cheat C++: structs that match the game's memory
+      layout. If the game's player struct has HP at offset 0xEC, ammo at
+      0x140, position at 0x100/0x104/0x108, you write:</p>
+
+      <pre><code>struct CPlayer {
+    char _pad0[0xEC];   // unknown bytes; just skip
+    int  hp;            // at +0xEC
+    char _pad1[0x140 - 0xEC - 4];
+    int  ammo;          // at +0x140
+};
+
+// Now you can:
+CPlayer* player = (CPlayer*)player_struct_addr;
+player-&gt;hp = 9999;
+player-&gt;ammo = 999;</code></pre>
+
+      <p>This is what <strong>ReClass.NET</strong> generates for you — it
+      attaches to the process, lets you visually mark "HP is here", "ammo is
+      there," and exports a C++ struct with the right pad bytes.</p>
+
+      <p>The cheat dev workflow: ReClass to map the struct, then C++ to use
+      it. The map you make in ReClass is exactly what your <code>struct</code>
+      definition becomes.</p>
+
+      <h2>The patterns you now own</h2>
+
+      <p>If you absorbed this article, the following snippets stop being magic:</p>
+
+      <pre><code>// (1) Calling an engine function
+typedef void(__stdcall *tSendToServer)(void*, uint32_t);
+tSendToServer pSend = (tSendToServer)ADDR;
+pSend(msg, GUARANTEED);
+
+// (2) Calling a C++ method via vtable index
+void** vt = *(void***)g_LTClient;
+((void(__thiscall*)(void*))vt[2])(g_LTClient);   // 3rd virtual
+
+// (3) Reading game memory through a struct
+CPlayer* p = *(CPlayer**)PLAYER_BASE_PTR;
+p-&gt;hp = 9999;</code></pre>
+
+      <p>Pattern 1 is M50. Pattern 2 is the second LithTech magic-packet
+      example you've seen (<code>g_LTClient->Common()</code>). Pattern 3 is the
+      core of every internal cheat that doesn't wrap memory access in
+      ReadProcessMemory.</p>
+
+      <p>Next article: <em>The Windows API Cheat Toolkit</em> —
+      OpenProcess, ReadProcessMemory, WriteProcessMemory, VirtualAllocEx,
+      CreateRemoteThread. The external-trainer building blocks.</p>
+    `,
+  },
 ];
 
 export class Library {

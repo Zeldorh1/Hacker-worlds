@@ -216,6 +216,27 @@ export class DllRuntime {
         }
         return out;
       },
+      // M66 — CAutoMessage-style packet builder. Real LithTech:
+      //   CAutoMessage Msg;
+      //   Msg.Writeuint8(ID_VoteKick);
+      //   Msg.Writeuint16(target_id);
+      //   pSendToServer(Msg.Read(), MESSAGE_GUARANTEED);
+      // Sim equivalent: a builder that records typed fields, then
+      // returns a structured packet you can hand to send_to_server.
+      // Field types matter — Writeuint8 vs Writeuint16 changes the
+      // binary layout the server expects.
+      new_message: () => {
+        const fields = [];
+        return {
+          write_uint8: (v) => { fields.push({ t: "u8", v: v & 0xff }); },
+          write_uint16: (v) => { fields.push({ t: "u16", v: v & 0xffff }); },
+          write_uint32: (v) => { fields.push({ t: "u32", v: v >>> 0 }); },
+          write_string: (s) => { fields.push({ t: "str", v: String(s) }); },
+          read: () => ({ _msg: true, fields: fields.slice() }),
+          // Convenience: extract typed fields by index for the receiver.
+          field_count: () => fields.length,
+        };
+      },
       // M54 — enumerate enemies from inside packet hooks / cheats.
       // Returns [{id, name, x, y, hp, alive}]. Real-world equivalent:
       // walking the engine's player/entity list (LTClient->GetClientList
@@ -367,7 +388,7 @@ export class DllRuntime {
         "register_proc_enum_hook", "register_module_enum_hook",
         "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
         "call_engine_function", "sim_enemies",
-        "patch_code", "list_code_addresses",
+        "patch_code", "list_code_addresses", "new_message",
             wrapped
           );
           const a = this._makeApi();
@@ -380,7 +401,7 @@ export class DllRuntime {
         a.register_proc_enum_hook, a.register_module_enum_hook,
         a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook,
         a.call_engine_function, a.sim_enemies,
-        a.patch_code, a.list_code_addresses
+        a.patch_code, a.list_code_addresses, a.new_message
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -453,7 +474,7 @@ return {
         "register_proc_enum_hook", "register_module_enum_hook",
         "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
         "call_engine_function", "sim_enemies",
-        "patch_code", "list_code_addresses",
+        "patch_code", "list_code_addresses", "new_message",
         wrapped
       );
     } catch (e) {
@@ -471,7 +492,7 @@ return {
         a.register_proc_enum_hook, a.register_module_enum_hook,
         a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook,
         a.call_engine_function, a.sim_enemies,
-        a.patch_code, a.list_code_addresses
+        a.patch_code, a.list_code_addresses, a.new_message
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };
