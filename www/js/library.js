@@ -5587,6 +5587,385 @@ auto addr = aob_scan(module, "56 8B F1 D9 05 ?? ?? ?? ?? D8 65 ?? D9 9E 00 04 00
       cheat that lasts more than one patch."</p>
     `,
   },
+
+  {
+    id: "combat-arms-cheat-scene-history",
+    title: "The Combat Arms Cheat Scene: AS, GA, and the Last Era of Side-Room Communities",
+    brief: "Historical record of the AugmentedSkills vs GameAnarchy era — assembled from a contributor who was there, mapped to curriculum techniques.",
+    body: `
+      <h2>Why this article exists</h2>
+      <p>Most of what's findable about the Combat Arms cheat scene online is
+      either Nexon's official narrative (lawsuits, ban waves) or surface-level
+      Wikipedia summaries. The actual <strong>player-side history</strong> —
+      what these communities were, who ran them, how the techniques actually
+      worked, what it felt like to be there — has been disappearing for years
+      as old forums rot, Discords die, and YouTube videos go private.</p>
+
+      <p>This article preserves a chunk of that history, assembled with help
+      from a contributor who lived through it. Where they shared firsthand
+      observations, those are treated as authoritative. Where I (the article)
+      had to fill gaps from public sources, I've marked that explicitly.</p>
+
+      <p>The technical material maps cleanly onto specific missions in this
+      curriculum (M50, M51, M58, M75, M76, M77, M78 in particular). If
+      you've played those missions, you've already practiced the simulator
+      equivalent of every technique described here.</p>
+
+      <h2>The two shops</h2>
+
+      <h3>GameAnarchy (DrUnKeN ChEeTaH)</h3>
+      <ul>
+        <li><strong>Operator:</strong> "DrUnKeN ChEeTaH" — handle eventually
+        tied to a real legal name in the 2013 Nexon lawsuit (court docs).</li>
+        <li><strong>Reputation:</strong> the "competitive / sweat" shop. Built
+        for hardcore players who wanted to dominate at a near-pro level.</li>
+        <li><strong>Signature features:</strong> highly customizable aimbot
+        (smoothness, FOV cone, prediction lead time, bone selection — all
+        tunable per-customer), advanced ESP (HP bars, distance, weapon held),
+        very fast loader / injection.</li>
+        <li><strong>Patch-day reputation:</strong> updated within 15-30 minutes
+        of major Nexon patches. The fastest in the scene by a wide margin.</li>
+      </ul>
+
+      <h3>AugmentedSkills (Rajin)</h3>
+      <ul>
+        <li><strong>Operator:</strong> "Rajin" / "Rajan" (handle).</li>
+        <li><strong>Reputation:</strong> the "creative / chaos" shop. UI was
+        the gold standard — polished in-game menu, easier for non-technical
+        users.</li>
+        <li><strong>Signature features:</strong> "Remote Kill" / "Teleport
+        Kill" (kill players from across the map with no movement), Fly Hack
+        / God Mode glitches that survived patches, broader game support.</li>
+        <li><strong>Polish:</strong> the menu didn't crash the game, supported
+        mouse + arrow-key control, looked clean — non-trivial in the Windows
+        XP/7 era.</li>
+      </ul>
+
+      <h2>Their internal-cheat architecture</h2>
+
+      <p>Both shops ran <strong>internal cheats</strong> (DLLs injected into
+      the Combat Arms process), not external trainers. This matters because
+      it determined what techniques they could deploy.</p>
+
+      <p>Why internal: client-side anti-cheats (HackShield, BlackCiph3r) scan
+      RAM looking for suspicious processes attached to the game. External
+      trainers attach via OpenProcess + RPM/WPM and are visible to those
+      scans. Internal DLLs run inside the game's own process — they read the
+      same memory the game reads via direct pointer dereferences. No
+      external attachment to detect.</p>
+
+      <p>The cost: getting the DLL injected in the first place. Both shops
+      shipped manual-mapping injectors — see the <em>PE Format & DLL
+      Injection</em> codex article for the technique. Their DLLs never
+      appeared in <code>EnumProcessModules</code> output, so client-side
+      module-list scans (M45 territory in the curriculum) couldn't find them.</p>
+
+      <h2>The technique catalog (curriculum mapping)</h2>
+
+      <table>
+        <thead>
+          <tr><th>Cheat scene capability</th><th>Real C++ mechanism</th><th>Curriculum mission</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Aimbot smoothness / FOV / prediction tuning</td>
+            <td>Per-frame target selection with lerp factor + cone-of-fire test + projectile lead</td>
+            <td>M07 base + M61/M62 (planned)</td>
+          </tr>
+          <tr>
+            <td>Box ESP / Chams / Skeleton</td>
+            <td>register_render_hook on EndScene (M26 territory)</td>
+            <td>M26, M55</td>
+          </tr>
+          <tr>
+            <td>Wireframe walls</td>
+            <td>SetRenderState(D3DRS_FILLMODE, WIREFRAME)</td>
+            <td>M56</td>
+          </tr>
+          <tr>
+            <td>Remote Kill / Teleport Kill (AS signature)</td>
+            <td>Inject crafted damage packet with arbitrary target_id; no fire required</td>
+            <td>M58 OPK</td>
+          </tr>
+          <tr>
+            <td>Anti-aim / fake hitbox</td>
+            <td>Hook outgoing position-update packet, rewrite x/y/yaw to fake values</td>
+            <td>M75</td>
+          </tr>
+          <tr>
+            <td>OWNER-TIER stealth (server doesn't broadcast you)</td>
+            <td>Magic packet flips server session.broadcastDisabled (no auth check)</td>
+            <td>M76</td>
+          </tr>
+          <tr>
+            <td>OWNER-TIER server-side godmode</td>
+            <td>Magic packet flips server session.damageImmune (no auth check)</td>
+            <td>M77</td>
+          </tr>
+          <tr>
+            <td>Lobby Crasher (cheater-vs-cheater, malformed packet)</td>
+            <td>Field-count mismatch triggers parser exception</td>
+            <td>M78 (sim NPCs only)</td>
+          </tr>
+          <tr>
+            <td>NoRecoil / RapidFire / NoReload byte patches</td>
+            <td>MemCopy(addr, "\\x90", 1) NOPs the check instruction</td>
+            <td>M64</td>
+          </tr>
+          <tr>
+            <td>Engine function calls (force_respawn etc)</td>
+            <td>typedef + ADDR cast + invoke</td>
+            <td>M50</td>
+          </tr>
+          <tr>
+            <td>Multi-field magic packets (anti-kick, suicide etc)</td>
+            <td>CAutoMessage + Writeuint8/16 chain</td>
+            <td>M51, M66</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>Notice the pattern: virtually every signature feature of the Combat
+      Arms cheat scene maps to a curriculum mission. The simulator gives you
+      hands-on practice with the same primitives.</p>
+
+      <h2>The Great Hacker War (2009-2011)</h2>
+
+      <p>According to historical accounts, AS and GA ran a sustained
+      technical rivalry across roughly 2009-2011 — the "Great Hacker War" —
+      where each shop pushed the other to innovate:</p>
+
+      <ul>
+        <li>One shop would release a new feature</li>
+        <li>The other would respond with a counter or a more polished version</li>
+        <li>The community would pick which side to subscribe to based on
+        technical preference</li>
+        <li>Forums (since dead) had ongoing comparison threads, demo
+        videos, "lobby reports" of who landed which trick first</li>
+      </ul>
+
+      <p>The contributor describes lobbies where customers from both shops
+      would join the same servers — not formally competing, just hanging out
+      with TeamSpeak in the background, flying around, killing legitimate
+      players, listening to people rage in voice chat. The "war" was less a
+      formal e-sport and more a cultural moment — two communities of mostly
+      ~18-year-old young adults having chaotic fun with the games' rules
+      bent in their favor.</p>
+
+      <h2>OWNER-TIER exclusives (M76/M77 territory)</h2>
+
+      <p>Both shops had features <strong>only the owners had</strong> — never
+      sold to customers, never publicly documented:</p>
+
+      <ul>
+        <li><strong>Account-level invisibility:</strong> their accounts
+        appeared as regular low-rank players (no GM tag, "barely above
+        recruit") — but were INVISIBLE to other cheaters' ESP, immune to
+        OPK, untargetable by aimbots. Per the contributor: this almost
+        certainly worked via a server-side flag (<code>session.broadcastDisabled</code>
+        equivalent) flipped by a privileged-handler magic packet. M76 in
+        the simulator is the modeled version.</li>
+        <li><strong>Server-side God Mode:</strong> "highly aggressive
+        localized God Modes that ignored damage packets from other players."
+        Equivalent to flipping <code>session.damageImmune</code> server-side.
+        M77 in the simulator is the modeled version.</li>
+        <li><strong>Anti-aim / fake hitboxes:</strong> the technique that
+        powered "your bullets passed through them" — server received fake
+        position data, hit detection used the fake, real hitbox was elsewhere.
+        M75 in the simulator is the modeled version.</li>
+      </ul>
+
+      <p>Why these features were owner-only: the developers knew that
+      flipping <code>broadcastDisabled</code> on every customer account
+      would be a smoking gun for Nexon's investigators. By keeping these
+      features rare, the exploits stayed unpatched longer. Also: "the
+      developer is always the apex predator in their own game."</p>
+
+      <h2>HackShield Pro / BlackCiph3r — the Korean anti-cheat track</h2>
+
+      <p>Combat Arms didn't run BattlEye, EAC, or VAC. It ran Korean-developed
+      anti-cheats: <strong>HackShield Pro</strong> (later <strong>XIGNCODE3</strong>)
+      and <strong>BlackCiph3r</strong>. These had different fingerprints from
+      the Western anti-cheats most cheat-dev tutorials reference:</p>
+
+      <ul>
+        <li><strong>Launcher integration:</strong> HackShield ran from the
+        Combat Arms launcher, before the game process started. Tampered
+        environments couldn't even reach the login screen.</li>
+        <li><strong>Kernel-level component:</strong> a driver loaded at
+        Windows boot that monitored low-level memory and process activity.
+        Standard for Asian-market FPSes from the late 2000s onward.</li>
+        <li><strong>Memory CRC checks:</strong> periodic integrity scans of
+        the game's own code segments. The M64 byte-patch lesson is exactly
+        what HackShield was looking for — a single \\x90 in a function
+        prologue stuck out.</li>
+        <li><strong>BlackCiph3r:</strong> a separate layer that watched CPU
+        and memory for unauthorized changes. Per the historical brief:
+        "elite developers bypassed this by running under the radar — kernel-
+        level access to hide presence — and by feeding it fake all-clear
+        signals while the cheat ran in the background."</li>
+      </ul>
+
+      <p>The "feed fake all-clear signals" technique is its own technique
+      class — <strong>anti-cheat spoofing</strong>. Instead of evading the
+      AC's detection, the cheat tampers with the AC's REPORTING: every check
+      returns "no hacks detected" regardless of what's actually happening.
+      Equivalent in the simulator would be hooking the cheatShield scan
+      function (M21/M41) and forcing it to always return zero violations.
+      A potential future mission.</p>
+
+      <h2>Mutual respect, NOT merger</h2>
+
+      <p>An earlier draft of this article (and a Google AI summary the
+      contributor reviewed) framed AS+GA as eventually <em>merging</em>. The
+      contributor corrected this: <strong>they didn't merge.</strong> They
+      remained two solid independent websites operating in parallel.</p>
+
+      <p>What actually happened, per the contributor: by the late period,
+      DrUnKeN ChEeTaH and Rajin had developed mutual professional respect
+      after years of competition. They became members on each other's sites,
+      occasionally talked privately, and may have shared technique
+      information — but each shop kept its own infrastructure, its own
+      customer base, and its own development.</p>
+
+      <p>This is rarer than a merger and more interesting. Mergers happen
+      when economics force them. Mutual respect requires the participants
+      to recognize each other's skill — to see the other as a peer, not
+      just a commercial obstacle. Most rivals never reach that level. The
+      AS/GA dynamic is comparable to:</p>
+
+      <ul>
+        <li>Two rival CEOs who become genuine friends after years of competing</li>
+        <li>Pro athletes from rival teams who respect each other's craft</li>
+        <li>Open-source maintainers of competing projects who DM each other
+        about shared bugs</li>
+      </ul>
+
+      <p>It also explains why both shops kept improving — neither one
+      stopped pushing the bar up because the rival kept pushing back.
+      Merged entities tend to atrophy because the internal competition
+      dies; AS/GA stayed sharp because each one's existence kept the
+      other honest.</p>
+
+      <h2>The TeamSpeak / community vibe</h2>
+
+      <p>Per the contributor, the actual product was less the cheat
+      software and more the <strong>community</strong>:</p>
+
+      <ul>
+        <li>Mostly young adults (~18 years old)</li>
+        <li>TeamSpeak servers always populated</li>
+        <li>Mid-game chaos: groups of friends flying around maps together,
+        listening to legitimate players rage in voice chat</li>
+        <li>Drama, friendships, in-jokes, beefs — the same social texture
+        as any vibrant Discord/forum community</li>
+      </ul>
+
+      <p>The cheats were the entry point. The social network was the
+      substance. People didn't get attached to GameAnarchy because of its
+      aimbot smoothness setting — they got attached because Tuesday night
+      there were people they knew on TeamSpeak doing something stupid
+      together.</p>
+
+      <p>This explains the <strong>"shadow longevity"</strong> effect on
+      the underlying game. Combat Arms' active ecosystem during 2009-2013
+      wasn't just legitimate players — a chunk of "active community" was
+      the cheat side-rooms keeping people logged in even after the base
+      game had grown stale.</p>
+
+      <h2>The lawsuit (Nexon America v. GameAnarchy, 2013)</h2>
+
+      <p>Nexon America sued the operator of GameAnarchy.net in April 2013.
+      Judgment: <strong>$1.4 million</strong>.</p>
+
+      <p>Run the math at the corrected scale (per the contributor):</p>
+      <ul>
+        <li>Peak revenue: 100k subscribers × $30/month × 120 months
+        (10 years) = approximately $360 million cumulative</li>
+        <li>$1.4M judgment as % of that: <strong>0.39%</strong></li>
+        <li>Even at conservative scale (30k average × 5 years): $54M revenue,
+        judgment = 2.6%</li>
+      </ul>
+
+      <p>That's not a career-ender. That's a parking ticket. At his
+      operational scale, the lawsuit was almost certainly <strong>budgeted
+      for in advance</strong> — legal defense fund set aside, take the L
+      when it lands, walk away with the other 99%+. The lawsuit pattern
+      since (LeagueSharp $10M, AimJunkies $4.4M, EngineOwning $14.4M) shows
+      damages climbing, but the judgments are still small relative to
+      successful-shop revenue.</p>
+
+      <p>What ISN'T budgeted for, even at elite scale: criminal exposure,
+      payment-processor blacklisting, real name on permanent public court
+      record, banking and travel restrictions. The financial side is a
+      cost of doing business; the personal-life side is the actual cost.</p>
+
+      <h2>The end of the era</h2>
+
+      <p>Combat Arms went into a slow decline through the mid-2010s. Causes
+      were multiple — game age, CS:GO eating the casual-FPS market,
+      stale gameplay, P2W microtransaction fatigue — but the lawsuit
+      against GameAnarchy timed roughly with the decline taking off.</p>
+
+      <p>Whether removing the cheat communities accelerated the decline is
+      debated. The contributor argues that the cheat-side-room communities
+      were a meaningful chunk of player engagement, and removing that
+      engagement layer accelerated the loss. There's a counterargument that
+      the game would have declined anyway from its other issues. Both are
+      probably partially true.</p>
+
+      <p>What's certainly true: the modern AAA shooter ecosystem has been
+      designed to make this kind of cheat-side-room community impossible.
+      Vanguard / EAC / BattlEye don't just kill the cheats — they kill the
+      side-rooms those cheats organized. The Tuesday-night-TeamSpeak vibe
+      that defined the AS/GA era doesn't reproduce in 2024 against a game
+      with a Ring-0 anti-cheat that boots before the game launches.</p>
+
+      <p>Modern games have closed the cheat economy more thoroughly than
+      Nexon ever could. The tradeoff: the chaotic, emergent, side-community
+      energy that characterized Combat Arms's peak years isn't part of the
+      modern AAA experience. Whether that's a good thing depends on whether
+      you valued the side-room or just the official game.</p>
+
+      <h2>Legacy and what this curriculum preserves</h2>
+
+      <p>Most of what made the AS/GA era specifically interesting is gone:</p>
+      <ul>
+        <li>The forums are dead or nuked</li>
+        <li>The TeamSpeak servers are long-decommissioned</li>
+        <li>The YouTube videos are mostly private or deleted</li>
+        <li>The cheats themselves don't run on modern Windows / against
+        modern Combat Arms (the game itself is mostly defunct)</li>
+        <li>The community has aged out — many former AS/GA customers are
+        in their 30s now with regular jobs</li>
+      </ul>
+
+      <p>What remains is the <strong>technique knowledge</strong>. The
+      mechanisms — engine hooking, magic packets, anti-aim, server-trust
+      exploits, byte patching, manual mapping — didn't die with the
+      community. They're the foundation of every modern competitive cheat
+      scene (CS:GO/CS2 Onetap, Apex AimJunkies, Valorant cheats), just
+      pointed at different games against different anti-cheats.</p>
+
+      <p>This curriculum preserves those techniques in an explicitly
+      educational, simulator-only form. M50, M51, M58, M64, M65, M66, M75,
+      M76, M77, M78 — all of them are direct descendants of techniques the
+      AS/GA scene developed and refined over 5+ years of operation. The
+      simulator gives you hands-on practice with the same primitives,
+      against a target that exists only in the browser, with no commercial
+      multiplayer game ever touched.</p>
+
+      <p>The community is gone. The technique lineage continues. This
+      article is a small part of preserving the historical context the
+      curriculum's missions are built on.</p>
+
+      <p><em>This article was assembled with help from a contributor who
+      lived through the AS/GA era. Where firsthand observations are quoted
+      or paraphrased, those are treated as authoritative. Where I had to
+      fill technical gaps, I've used best-effort inference from public
+      cheat-dev practice and the curriculum's existing missions.</em></p>
+    `,
+  },
 ];
 
 export class Library {
