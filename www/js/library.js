@@ -5249,6 +5249,104 @@ if (addr) *(BYTE*)addr = 0x90;</code></pre>
         it gets richer with every patch you survive. Treat it like source code.</li>
       </ul>
 
+      <h2>The DrUnKeN ChEeTaH coda: legal end-states</h2>
+
+      <p>Patch-day is one ending. Legal action is the other. You should know
+      both pictures honestly.</p>
+
+      <p><strong>The case study:</strong> in 2013 Nexon America sued the
+      operator of GameAnarchy.net (handle: DrUnKeN ChEeTaH) for selling
+      Combat Arms cheats. The judgment was <strong>$1.4 million</strong>.
+      The site had run for ~10 years, peaked at ~100k monthly subscribers
+      paying ~$30/month.</p>
+
+      <p>Run the math:</p>
+      <ul>
+        <li>Peak revenue: 100k × $30/mo × 120 months = <strong>$360 million</strong> cumulative</li>
+        <li>$1.4M judgment as % of peak revenue: <strong>0.39%</strong></li>
+        <li>Even at conservative 30k average × 5 years: $54M revenue, $1.4M = 2.6%</li>
+      </ul>
+
+      <p>That's not a career-ender. That's a parking ticket. At his
+      operational scale, the lawsuit was almost certainly <strong>budgeted
+      for in advance</strong> — legal defense fund set aside, take the L
+      when it lands, walk away with the other 99%+. This is the
+      uncomfortable truth about the legal asymmetry: at the elite tier,
+      single-game lawsuits are a <em>cost of doing business</em>, not a
+      deterrent.</p>
+
+      <h3>The trend matters though</h3>
+
+      <table>
+        <thead><tr><th>Year</th><th>Case</th><th>Judgment</th><th>% of $360M est.</th></tr></thead>
+        <tbody>
+          <tr><td>2013</td><td>Nexon v. GameAnarchy (DrUnKeN)</td><td>$1.4M</td><td>0.39%</td></tr>
+          <tr><td>2017</td><td>Riot v. LeagueSharp</td><td>~$10M (default)</td><td>2.8%</td></tr>
+          <tr><td>2023</td><td>Bungie v. AimJunkies</td><td>$4.4M</td><td>1.2%</td></tr>
+          <tr><td>2024</td><td>Activision v. EngineOwning</td><td>$14.4M (default)</td><td>4.0%</td></tr>
+        </tbody>
+      </table>
+
+      <p>Studios are pushing damages into territory where even DrUnKeN-tier
+      shops can't shrug it off. EngineOwning's $14.4M would actually bite
+      against $360M revenue (4% is real money). The trend is real — just
+      slower than the operations are scaling alongside it.</p>
+
+      <h3>What ISN'T priced in even at elite scale</h3>
+
+      <p>The financial side is budgeted. The non-financial side is not:</p>
+      <ul>
+        <li><strong>Criminal exposure.</strong> The same conduct can be
+        charged under the CFAA (Computer Fraud and Abuse Act) in the US,
+        Misuse-of-Computer-Systems acts in the UK and EU, similar laws
+        elsewhere. Civil judgments are dischargeable in bankruptcy;
+        criminal convictions aren't. Few operators get charged criminally,
+        but it's the wildcard nobody prices in.</li>
+        <li><strong>Real name on public court documents forever.</strong>
+        The "DrUnKeN ChEeTaH" handle is now legally tied to a real
+        identity in court records. Try getting hired in tech, getting a
+        mortgage, or applying for international work visas with that
+        in your background.</li>
+        <li><strong>Payment processor blacklisting.</strong> Stripe,
+        PayPal, banks all block your accounts retroactively after a
+        public IP-fraud judgment. The next venture has trouble even
+        opening a business account.</li>
+        <li><strong>Banking and travel restrictions.</strong> Sanctioned
+        in the US? Can't easily move money between countries. Some
+        jurisdictions deny entry. Long-term mobility takes a hit.</li>
+      </ul>
+
+      <h2>Why this curriculum's framing genuinely matters</h2>
+
+      <p>The simulator-only educational framing of <em>this</em> curriculum
+      is what keeps everything we've built in legitimate study territory.
+      The line is:</p>
+
+      <table>
+        <thead><tr><th>Activity</th><th>Legal status</th></tr></thead>
+        <tbody>
+          <tr><td>Reverse engineering for personal study</td><td>Generally protected — fair use, research exceptions in most jurisdictions</td></tr>
+          <tr><td>Building cheats for your own offline / single-player game</td><td>Generally legal (DMCA reverse-engineering exceptions)</td></tr>
+          <tr><td>Building tools that target a SIMULATED environment (this curriculum)</td><td>Pure educational use — no plaintiff, no harm, no commercial impact</td></tr>
+          <tr><td>Selling cheats for commercial multiplayer games</td><td>The DrUnKeN ChEeTaH lane. Civil + sometimes criminal liability.</td></tr>
+          <tr><td>Distributing them for free against commercial games</td><td>Still civil DMCA exposure; harder for studios to recover damages but cease-and-desists are common</td></tr>
+        </tbody>
+      </table>
+
+      <p>The techniques you've learned in M01-M74 are <em>universally
+      applicable</em> — same skills used for legitimate security research,
+      malware analysis, anti-cheat development, game-engine debugging, and
+      the dual-use cheat-dev side. <strong>Where you point those skills is
+      what determines your legal exposure.</strong></p>
+
+      <p>Honest summary: cheat-dev shops at scale survive lawsuits as a
+      budgeted cost, but the trend is judgments getting bigger, criminal
+      exposure remains the unpriced wildcard, and the personal cost of
+      having your name in a permanent public judgment outlasts the financial
+      payoff. Whether the math works for any individual depends on your
+      time horizon, risk tolerance, and what you'd otherwise be doing with
+      the same skill set.</p>
+
       <p>Next article: <em>IDA Pro & Binary Diffing</em> — the toolchain
       that makes the patch-day workflow possible.</p>
     `,
