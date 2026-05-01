@@ -259,6 +259,23 @@ export class AssaultZone {
       damagePerHit: 8,
     };
 
+    // M60 — AC string scanner. Periodically searches the DLL's
+    // compiled source for known cheat-keyword strings ("AIMBOT",
+    // "ESP", "WALLHACK", etc.). Each hit is a violation. The cheat's
+    // bypass: XOR-encrypt the strings at rest in source so the
+    // scanner only finds garbage. Plaintext exists briefly at
+    // runtime when decoded; not in the source memory image the
+    // scanner reads.
+    this.acStringScanner = {
+      enabled: false,
+      intervalMs: 1500,
+      lastScanAt: 0,
+      keywords: ["AIMBOT", "ESP", "WALLHACK", "CHAMS", "TRIGGERBOT", "NORECOIL"],
+      hits: 0,
+      cleanScans: 0,
+      threshold: 4,
+    };
+
     // M79 — anti-cheat reporter. Periodically the AC client sends a
     // status report to the AC server: "is the player running cheats?"
     // The server compares reports over time and trips violations when
@@ -839,6 +856,9 @@ export class AssaultZone {
     this.acReporter.violations = 0;
     this.acReporter.acceptedClean = 0;
     this.acReporter.detectedDirty = 0;
+    this.acStringScanner.enabled = false;
+    this.acStringScanner.hits = 0;
+    this.acStringScanner.cleanScans = 0;
     this.server.canonicalPos.x = this.player.x;
     this.server.canonicalPos.y = this.player.y;
     codeSegment.reset();
@@ -1050,6 +1070,16 @@ export class AssaultZone {
     this.acReporter.lastReportAt = performance.now();
   }
   disableACReporter() { this.acReporter.enabled = false; }
+
+  // M60 — turn on the keyword-string scanner. Cheats with plaintext
+  // 'AIMBOT' / 'ESP' / etc. strings in their source register hits.
+  enableACStringScanner() {
+    this.acStringScanner.enabled = true;
+    this.acStringScanner.hits = 0;
+    this.acStringScanner.cleanScans = 0;
+    this.acStringScanner.lastScanAt = performance.now() - this.acStringScanner.intervalMs + 500;
+  }
+  disableACStringScanner() { this.acStringScanner.enabled = false; }
 
   // M40 — periodically simulate a spectator joining/leaving.
   // Emits 'spectator_joined' / 'spectator_left' recv packets.
@@ -1590,6 +1620,27 @@ export class AssaultZone {
       // Schedule next audit with fresh jitter.
       const jitter = (Math.random() - 0.5) * this.frameAudit.jitterMs;
       this.frameAudit.nextAuditAt = now + this.frameAudit.baseIntervalMs + jitter;
+    }
+
+    // M60 — AC string scanner. Reads dll.lastSource and counts how
+    // many keyword hits appear as STANDALONE TOKENS (word-boundary
+    // regex). This avoids false positives inside compound identifiers
+    // like 'render.espVisible' (where 'esp' is part of a larger
+    // identifier, not a literal cheat-string).
+    if (this.acStringScanner.enabled &&
+        now - this.acStringScanner.lastScanAt > this.acStringScanner.intervalMs) {
+      this.acStringScanner.lastScanAt = now;
+      const dll3 = (typeof window !== "undefined" && window.__hw)
+        ? window.__hw.dll : null;
+      const src = (dll3 && dll3.lastSource) ? dll3.lastSource : "";
+      let hits = 0;
+      for (const kw of this.acStringScanner.keywords) {
+        // Word-boundary match, case-insensitive
+        const re = new RegExp("\\b" + kw + "\\b", "i");
+        if (re.test(src)) hits++;
+      }
+      this.acStringScanner.hits = hits;
+      if (hits === 0) this.acStringScanner.cleanScans++;
     }
 
     // M79 — AC reporter. Every intervalMs the AC client emits a

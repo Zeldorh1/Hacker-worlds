@@ -6019,6 +6019,127 @@ auto addr = aob_scan(module, "56 8B F1 D9 05 ?? ?? ?? ?? D8 65 ?? D9 9E 00 04 00
       record, banking and travel restrictions. The financial side is a
       cost of doing business; the personal-life side is the actual cost.</p>
 
+      <h2>Business operations and professionalism</h2>
+
+      <p>The lawsuit framing only makes sense once you internalize how
+      <strong>professionally these shops operated</strong>. AS and GA weren't
+      "underground hacker groups" — they were software companies, with
+      revenue, staff, and infrastructure that rivaled the studios they were
+      attacking.</p>
+
+      <h3>The financial scale</h3>
+
+      <ul>
+        <li><strong>Per-month at peak:</strong> 100,000 active VIP
+        subscribers × $30/month = <strong>$3 million in monthly recurring
+        revenue</strong>. Per shop. Combined gross monthly across both AS
+        and GA could plausibly hit $5-6M during the peak years.</li>
+        <li><strong>Per year at peak:</strong> ~$36 million per shop, or
+        $60-70M combined for the duopoly.</li>
+        <li><strong>Cumulative across the active years</strong> (and across
+        multiple games — both shops supported additional FPSes beyond Combat
+        Arms): plausibly hundreds of millions of dollars total revenue across
+        the era.</li>
+      </ul>
+
+      <h3>The "Hive Mind" testing lab</h3>
+
+      <p>Member count wasn't just revenue — it was <strong>data</strong>.
+      With 100k people running the same cheat simultaneously, the shops had
+      a real-time anti-cheat-detection telemetry system the studios couldn't
+      match:</p>
+
+      <ul>
+        <li>One user gets an unexpected ban → telemetry captures the exact
+        cheat-state at the time</li>
+        <li>The pattern across N banned users → identifies which feature
+        triggered detection</li>
+        <li>Update gets pushed to the OTHER 99,999 users <strong>before
+        Nexon's detection wave hits them</strong></li>
+      </ul>
+
+      <p>This is the actual mechanism behind the scene's myth of
+      "invulnerability." Individual ban-survivability wasn't magic; it was
+      a population-scale early-warning system. Free / small-time cheats
+      didn't have the user volume to detect ban-wave patterns and update in
+      time. AS and GA did.</p>
+
+      <h3>Market capture and meta control</h3>
+
+      <p>By dominating the user base, the duopoly effectively <strong>controlled
+      the in-game meta</strong> at higher skill tiers. If you didn't have a
+      VIP hack, you couldn't realistically compete in elite-tier lobbies —
+      because most of those lobbies' top players had hacks. This forced
+      additional legitimate-skill players to subscribe just to keep up,
+      compounding the user base further.</p>
+
+      <p>Same dynamic as legitimate online services: network effects make
+      the dominant provider increasingly inevitable. The cheat duopoly was
+      effectively a two-sided marketplace, and once they hit critical mass,
+      organic growth became self-sustaining.</p>
+
+      <h3>Operational professionalism</h3>
+
+      <p>The revenue funded operations that genuinely rivaled small software
+      companies:</p>
+
+      <ul>
+        <li><strong>Customer support staff:</strong> dedicated forum
+        moderators, ticket-based technical support, on-call response for
+        post-patch breakage. Subscribers got faster response times than
+        most legitimate AAA-game customers got from official support.</li>
+
+        <li><strong>Salaried engineering team:</strong> top reverse-engineers
+        weren't volunteers — they were on payroll, with implicit SLAs to
+        ship updates within hours of major patches. Per the historical
+        contributor: GameAnarchy's 15-30 minute patch-day turnaround was
+        only possible because the team was full-time and on-call.</li>
+
+        <li><strong>Payment middlemen:</strong> after PayPal, Stripe, and
+        major banks blacklisted the shops (a routine consequence of the
+        public legal action), they routed subscriptions through obscure
+        payment processors and crypto. Infrastructure rivaled what an
+        actual sanctioned-jurisdiction software company would build.</li>
+
+        <li><strong>Legal defense funds:</strong> the multi-million-dollar
+        revenue is precisely what funded the multi-year court battles. A
+        small-time hacker would have folded after the first cease-and-desist;
+        AS and GA could afford high-end legal representation through the
+        full case lifecycle. This is the real reason DrUnKeN ChEeTaH could
+        absorb a $1.4M judgment as a budgeted cost — the war chest was
+        bigger than the verdict.</li>
+
+        <li><strong>Brand and community management:</strong> active
+        Discords, TeamSpeak servers, forum drama threads, customer
+        loyalty programs (lifetime VIP for early subscribers), tiered
+        pricing (basic / VIP / elite) — all the trappings of a mature
+        consumer software business.</li>
+      </ul>
+
+      <h3>What this reframes about the "Hacker War"</h3>
+
+      <p>It wasn't just two coders trying to one-up each other. It was
+      <strong>two multi-million-dollar revenue streams</strong> protecting
+      market share from each other, from Nexon, and from upstart competitors.
+      The technical innovation we mapped earlier in the article was real,
+      but it was driven by commercial competition: better features attracted
+      more subscribers, more subscribers funded more development, more
+      development drove better features.</p>
+
+      <p>From this vantage point, the AS / GA mutual-respect dynamic the
+      contributor described makes additional business sense. Two duopoly
+      operators who recognize they're each more valuable as a competitor
+      than a destroyed rival — together they keep the market structured;
+      separately each is a bigger target for Nexon's lawyers.</p>
+
+      <p>The contributor's framing of the era was correct: this was the
+      last time independent operators ran consumer-facing cheat businesses
+      at this scale. Modern AAA anti-cheats have raised the cost of
+      entry past the point where a 1-2 person team can profitably maintain
+      a cheat against current targets. The shops that exist today are
+      smaller-scale, target older or less-protected games, and don't
+      reach AS / GA-tier revenue or social impact.</p>
+
       <h2>The end of the era</h2>
 
       <p>Combat Arms went into a slow decline through the mid-2010s. Causes

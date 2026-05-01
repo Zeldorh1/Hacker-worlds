@@ -446,6 +446,11 @@ export class DllRuntime {
    */
   compile(source) {
     this.eject();
+    // M60 — keep the original source available so the AC string
+    // scanner can search it for known cheat keywords. Cheats that
+    // XOR-encrypt their strings hide them from this scan because
+    // the plaintext doesn't appear in the source code at all.
+    this.lastSource = source || "";
     // Strip C-style cruft so JS new Function() accepts the body. We
     // keep the user-typed code mostly intact — just rewrite a few
     // patterns that would be JS errors.

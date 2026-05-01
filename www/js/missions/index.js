@@ -69,6 +69,11 @@ import { mission76 } from "./mission-76.js";
 import { mission77 } from "./mission-77.js";
 import { mission78 } from "./mission-78.js";
 import { mission79 } from "./mission-79.js";
+import { mission60 } from "./mission-60.js";
+import { mission61 } from "./mission-61.js";
+import { mission62 } from "./mission-62.js";
+import { mission63 } from "./mission-63.js";
+import { mission67 } from "./mission-67.js";
 
 // Display order. Mission file names stay as mission-NN.js for stability,
 // but the array position determines where each appears in the contracts
@@ -143,6 +148,7 @@ export const MISSIONS = [
   // -- Render-side cheats (extends M26 render hook)
   mission25, mission26,
   mission55,    // CHAMS + SKELETON ESP — render-hook variants beyond M26
+  mission63,    // INFO ESP — name/HP/dist/rank stacked metadata overlay
   mission56,    // WIREFRAME WALLS — render-state manipulation
 
   // -- Engine function calls + server-trust exploits
@@ -167,10 +173,18 @@ export const MISSIONS = [
   mission76,    // SERVER-SIDE STEALTH — magic packet stops broadcast (AS/GA owner-tier)
   mission77,    // SERVER-SIDE GOD MODE — server drops damage events targeting your session
   mission58,    // OPK — damage packet injection
+  mission67,    // (DEFENSIVE) FIRE-PAIRING — server rejects unpaired damage events
   mission78,    // LOBBY CRASHER — malformed packet ejects sim NPCs
   mission79,    // ANTI-CHEAT EMULATION — lie to the AC's reporter (fake all-clear)
   mission39, mission40,
   mission49,    // OUT-OF-PIPELINE ESP — GPU framebuffer capture bypass
+
+  // -- Anti-analysis (string obfuscation defeats AC keyword scan)
+  mission60,    // STRING ENCRYPTION — XOR strings to evade AC signature scan
+
+  // -- Aimbot tier (hit-zone + smoothing)
+  mission61,    // BONE AIMBOT — pick which hitbox (head/chest/neck)
+  mission62,    // SMOOTH AIMBOT — lerp to target = pass behavioral detector
 
   // -- Engine API abuse + advanced movement
   mission41, mission42, mission43,
