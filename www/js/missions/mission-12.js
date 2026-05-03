@@ -67,26 +67,22 @@ export const mission12 = {
     const speedIndicatorHtml = `
       <div id="m12-speed-indicator" style="
         position: fixed;
-        left: 8px; right: 8px; bottom: 56px;
+        right: 8px; top: 8px;
         z-index: 9000;
-        padding: 10px 12px;
-        background: rgba(2, 6, 12, 0.95);
-        border: 2px solid var(--accent-2);
-        border-radius: 6px;
+        padding: 4px 10px;
+        background: rgba(2, 6, 12, 0.92);
+        border: 1px solid var(--accent-2);
+        border-radius: 4px;
         font-family: ui-monospace, Menlo, monospace;
-        font-size: 14px;
+        font-size: 11px;
         color: var(--accent-2);
-        box-shadow: 0 0 16px rgba(34, 211, 238, 0.4);
-        text-align: center;
+        box-shadow: 0 0 8px rgba(34, 211, 238, 0.3);
         transition: background 200ms;
+        pointer-events: none;
+        white-space: nowrap;
       ">
-        <strong>LIVE SPEED:</strong> <span id="m12-speed-val" style="font-size: 16px;">— t/s</span>
-        <span style="margin-left: 12px; opacity: 0.85;">
-          PROGRESS: <span id="m12-tile-progress">0 / 30</span>
-        </span>
-        <div style="font-size: 10px; opacity: 0.7; margin-top: 2px;">
-          edit candidates to 30, press Enter; then walk 30 tiles
-        </div>
+        SPEED <span id="m12-speed-val">— t/s</span>
+        &nbsp;|&nbsp; <span id="m12-tile-progress">0 / 30</span>
       </div>`;
     if (!document.getElementById("m12-speed-indicator")) {
       document.body.insertAdjacentHTML("beforeend", speedIndicatorHtml);
