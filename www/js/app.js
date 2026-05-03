@@ -23,11 +23,27 @@ function setupTabs() {
   const views = {
     target:  document.getElementById("view-target"),
     scanner: document.getElementById("view-scanner"),
+    struct:  document.getElementById("view-struct"),
     dll:     document.getElementById("view-dll"),
   };
+  // Lazy-init the struct view on first switch.
+  let _structView = null;
   function switchTo(name) {
     tabs.forEach(t => t.classList.toggle("tab--active", t.dataset.view === name));
     Object.entries(views).forEach(([k, v]) => v.classList.toggle("view--active", k === name));
+    // Start/stop the struct view's polling so it only ticks while visible.
+    if (name === "struct") {
+      if (!_structView) {
+        import("./struct-view.js").then(mod => {
+          _structView = new mod.StructView();
+          _structView.start();
+        });
+      } else {
+        _structView.start();
+      }
+    } else if (_structView) {
+      _structView.stop();
+    }
     audio.tap();
   }
   tabs.forEach(t => t.addEventListener("click", () => switchTo(t.dataset.view)));
