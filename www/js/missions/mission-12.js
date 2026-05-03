@@ -60,31 +60,38 @@ export const mission12 = {
       "This is the workflow for every hidden stat in real games — speed, recoil, jump height, rotation rate.",
     ]);
 
-    // Add a live speed indicator at the top of the scanner panel.
-    // Doesn't reveal the cell VALUE — shows the EFFECT (tiles/sec).
-    // Same as a real game's player FEELING faster vs. seeing a raw number.
-    // Trial-and-error becomes: edit a candidate, glance at indicator,
-    // see if speed jumped — without leaving the scanner tab.
+    // Add a live speed indicator FIXED at the bottom of the viewport,
+    // just above the tab bar, so it's always visible regardless of
+    // where the player has scrolled in the scanner panel. Reading the
+    // indicator while editing the watchlist is the whole UX point.
     const speedIndicatorHtml = `
       <div id="m12-speed-indicator" style="
-        margin: 8px 0; padding: 6px 10px;
-        background: rgba(34, 211, 238, 0.08);
-        border: 1px solid rgba(34, 211, 238, 0.3);
-        border-radius: 4px;
+        position: fixed;
+        left: 8px; right: 8px; bottom: 56px;
+        z-index: 9000;
+        padding: 10px 12px;
+        background: rgba(2, 6, 12, 0.95);
+        border: 2px solid var(--accent-2);
+        border-radius: 6px;
         font-family: ui-monospace, Menlo, monospace;
-        font-size: 12px;
+        font-size: 14px;
         color: var(--accent-2);
+        box-shadow: 0 0 16px rgba(34, 211, 238, 0.4);
+        text-align: center;
+        transition: background 200ms;
       ">
-        LIVE SPEED: <span id="m12-speed-val">— t/s</span>
-        <span style="opacity:0.6; margin-left: 8px;">(edit candidates, watch this number jump)</span>
+        <strong>LIVE SPEED:</strong> <span id="m12-speed-val" style="font-size: 16px;">— t/s</span>
+        <div style="font-size: 10px; opacity: 0.7; margin-top: 2px;">
+          edit candidates to 30, press Enter, watch this number
+        </div>
       </div>`;
-    const scannerPanel = document.getElementById("view-scanner");
-    if (scannerPanel && !document.getElementById("m12-speed-indicator")) {
-      scannerPanel.insertAdjacentHTML("afterbegin", speedIndicatorHtml);
+    if (!document.getElementById("m12-speed-indicator")) {
+      document.body.insertAdjacentHTML("beforeend", speedIndicatorHtml);
     }
 
     let done = false;
     let tilesAtLowCooldown = -1;
+    let lastDisplayedTps = 0;
 
     const interval = setInterval(() => {
       if (done) return;
@@ -94,10 +101,26 @@ export const mission12 = {
       // instantly when the player edits the right candidate cell — no
       // movement required to see the effect.
       const $val = document.getElementById("m12-speed-val");
+      const $box = document.getElementById("m12-speed-indicator");
       if ($val) {
         const cd = Math.max(1, target.moveCooldownMs | 0);
-        const tps = (1000 / cd).toFixed(1);
+        const tps = parseFloat((1000 / cd).toFixed(1));
         $val.textContent = tps + " t/s";
+        // Flash green when the speed jumps significantly — visual cue that
+        // the player just edited the RIGHT cell.
+        if ($box && tps > lastDisplayedTps * 1.5 && lastDisplayedTps > 0) {
+          $box.style.background = "rgba(34, 197, 94, 0.4)";
+          $box.style.borderColor = "#22c55e";
+          $val.style.color = "#22c55e";
+          setTimeout(() => {
+            if ($box) {
+              $box.style.background = "rgba(2, 6, 12, 0.95)";
+              $box.style.borderColor = "var(--accent-2)";
+              if ($val) $val.style.color = "var(--accent-2)";
+            }
+          }, 1200);
+        }
+        lastDisplayedTps = tps;
       }
 
       // Track tiles only while the cooldown is actually low. If they
