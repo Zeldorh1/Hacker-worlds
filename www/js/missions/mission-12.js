@@ -38,7 +38,7 @@ export const mission12 = {
       min: 4,
       when: ({ scannerState, watchSize }) =>
         scannerState.lastResults && scannerState.lastResults.length <= 8 && watchSize < 4,
-      say: "Down to a handful. '+ watch' the candidates. Edit each value to 30 — only the speed cell will actually make you faster. Wrong cells do nothing. Freeze the right one.",
+      say: "Down to a handful. '+ watch' the candidates. Edit each value to 30 — watch the LIVE SPEED indicator at the top of the scanner panel. Wrong cells = no change. Right cell = number jumps. Freeze the one that worked.",
     },
     {
       id: "speedrun",
@@ -56,15 +56,50 @@ export const mission12 = {
       "Different beast this one. Movement speed isn't displayed — no HUD readout, no obvious starting number.",
       "Workflow: Scanner → Scan dropdown → 'Unknown Initial Value' → First Scan. That captures every cell as-is.",
       "Walk around. Filter 'unchanged' + Next Scan, a few times over. Stable cells survive (the speed stat is one); noise gets shaken out.",
-      "Trial-and-error the survivors: edit each to a low number, see which one makes you visibly faster. Freeze it. Then traverse 30 tiles.",
+      "Trial-and-error the survivors: edit each to a low number, see if 'LIVE SPEED' goes up. Freeze the right one. Then traverse 30 tiles.",
       "This is the workflow for every hidden stat in real games — speed, recoil, jump height, rotation rate.",
     ]);
+
+    // Add a live speed indicator at the top of the scanner panel.
+    // Doesn't reveal the cell VALUE — shows the EFFECT (tiles/sec).
+    // Same as a real game's player FEELING faster vs. seeing a raw number.
+    // Trial-and-error becomes: edit a candidate, glance at indicator,
+    // see if speed jumped — without leaving the scanner tab.
+    const speedIndicatorHtml = `
+      <div id="m12-speed-indicator" style="
+        margin: 8px 0; padding: 6px 10px;
+        background: rgba(34, 211, 238, 0.08);
+        border: 1px solid rgba(34, 211, 238, 0.3);
+        border-radius: 4px;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 12px;
+        color: var(--accent-2);
+      ">
+        LIVE SPEED: <span id="m12-speed-val">— t/s</span>
+        <span style="opacity:0.6; margin-left: 8px;">(edit candidates, watch this number jump)</span>
+      </div>`;
+    const scannerPanel = document.getElementById("view-scanner");
+    if (scannerPanel && !document.getElementById("m12-speed-indicator")) {
+      scannerPanel.insertAdjacentHTML("afterbegin", speedIndicatorHtml);
+    }
 
     let done = false;
     let tilesAtLowCooldown = -1;
 
     const interval = setInterval(() => {
       if (done) return;
+
+      // Update live speed indicator. Show PREDICTED speed derived from
+      // current moveCooldownMs (tiles per second = 1000/cooldown). Updates
+      // instantly when the player edits the right candidate cell — no
+      // movement required to see the effect.
+      const $val = document.getElementById("m12-speed-val");
+      if ($val) {
+        const cd = Math.max(1, target.moveCooldownMs | 0);
+        const tps = (1000 / cd).toFixed(1);
+        $val.textContent = tps + " t/s";
+      }
+
       // Track tiles only while the cooldown is actually low. If they
       // unfreeze and it pops back, we restart the count — real cheats
       // need the freeze to stay applied.
@@ -80,6 +115,10 @@ export const mission12 = {
       }
     }, 200);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      const el = document.getElementById("m12-speed-indicator");
+      if (el) el.remove();
+    };
   },
 };
