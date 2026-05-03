@@ -996,12 +996,23 @@ body[data-mode="hub"] .violation-bar { display: none; }
 }
 .struct-field {
   display: grid;
-  grid-template-columns: 50px 1fr 80px 18px;
-  gap: 8px;
+  grid-template-columns: 48px 36px 1fr 80px 18px;
+  gap: 6px;
   align-items: center;
   font-size: 11px;
   padding: 3px 4px;
   border-radius: 3px;
+}
+.struct-field .type-badge {
+  display: inline-block;
+  font-size: 9px;
+  padding: 1px 4px;
+  border: 1px solid;
+  border-radius: 3px;
+  text-align: center;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  background: rgba(0, 0, 0, 0.4);
 }
 .struct-field:hover {
   background: rgba(34, 211, 238, 0.08);

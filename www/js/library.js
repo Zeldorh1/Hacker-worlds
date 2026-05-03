@@ -6206,6 +6206,406 @@ auto addr = aob_scan(module, "56 8B F1 D9 05 ?? ?? ?? ?? D8 65 ?? D9 9E 00 04 00
       cheat-dev practice and the curriculum's existing missions.</em></p>
     `,
   },
+
+  {
+    id: "cpp-types-for-cheat-devs",
+    title: "C++ Types for Cheat Devs: char, int, float, Vector3, and friends",
+    brief: "Why ReadProcessMemory(4) on a char field returns garbage. What every type ACTUALLY is at the byte level.",
+    body: `
+      <h2>Why types matter</h2>
+      <p>Every cheat operation you've practiced is fundamentally
+      <strong>read N bytes / write N bytes</strong> at a memory address.
+      The N depends on the TYPE of what you're reading. Get N wrong and
+      the cheat fails silently or produces nonsense.</p>
+
+      <p>Concrete failure modes:</p>
+      <ul>
+        <li>HP is a 4-byte <code>int</code>. You ReadProcessMemory only
+        2 bytes. You read the lower half of HP plus 2 random bytes from
+        the next field — produces a random-looking number.</li>
+        <li>Position is a <code>Vector3</code> (3 floats = 12 bytes).
+        You read 4 bytes. You only get the X coordinate; Y and Z are
+        garbage.</li>
+        <li>You write <code>9999</code> as an int to a field that's
+        actually a <code>float</code>. The bits of 9999-as-int look
+        like <code>0.000000000000014</code>-as-float to the game. HP
+        appears as zero / NaN.</li>
+        <li>You scan in Cheat Engine for HP=100 with scan type "4 Bytes"
+        but HP is actually stored as a float. Scan returns nothing
+        because 100-as-float and 100-as-int have completely different
+        bit patterns.</li>
+      </ul>
+
+      <p>Knowing what type each field is = knowing what scan type to
+      pick, what ReadProcessMemory size to request, what value
+      representation to write back. This article walks through every
+      type you'll encounter, what it stores, and how to handle it.</p>
+
+      <h2>The integer types</h2>
+
+      <p>Integers are whole numbers. The "size" determines how big a
+      number can fit (and whether negatives are allowed).</p>
+
+      <table>
+        <thead>
+          <tr><th>C++ name</th><th>Windows alias</th><th>Bytes</th><th>Range</th><th>Common use in games</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>uint8_t</code> / <code>unsigned char</code></td>
+            <td><code>BYTE</code></td>
+            <td>1</td>
+            <td>0 to 255</td>
+            <td>Packet IDs, team colors, single-byte flags, tile IDs</td>
+          </tr>
+          <tr>
+            <td><code>int8_t</code> / <code>char</code></td>
+            <td>—</td>
+            <td>1</td>
+            <td>-128 to 127</td>
+            <td>Text characters, small signed deltas</td>
+          </tr>
+          <tr>
+            <td><code>uint16_t</code> / <code>unsigned short</code></td>
+            <td><code>WORD</code></td>
+            <td>2</td>
+            <td>0 to 65,535</td>
+            <td>Player IDs, port numbers, sequence numbers, ammo (small)</td>
+          </tr>
+          <tr>
+            <td><code>int16_t</code> / <code>short</code></td>
+            <td>—</td>
+            <td>2</td>
+            <td>-32,768 to 32,767</td>
+            <td>Signed offsets, small velocities</td>
+          </tr>
+          <tr>
+            <td><code>uint32_t</code> / <code>unsigned int</code></td>
+            <td><code>DWORD</code></td>
+            <td>4</td>
+            <td>0 to ~4.29 billion</td>
+            <td>HP, ammo, score, timestamps (in ms), 32-bit pointers (x86)</td>
+          </tr>
+          <tr>
+            <td><code>int32_t</code> / <code>int</code></td>
+            <td>—</td>
+            <td>4</td>
+            <td>-2.1B to 2.1B</td>
+            <td>The default workhorse. Most game stats are this.</td>
+          </tr>
+          <tr>
+            <td><code>uint64_t</code> / <code>unsigned long long</code></td>
+            <td><code>QWORD</code></td>
+            <td>8</td>
+            <td>0 to ~18 quintillion</td>
+            <td>Bigger timestamps, x64 pointers, hash values</td>
+          </tr>
+          <tr>
+            <td><code>int64_t</code> / <code>long long</code></td>
+            <td>—</td>
+            <td>8</td>
+            <td>±9.2 quintillion</td>
+            <td>Large signed math, time-since-epoch in nanoseconds</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Signed vs unsigned (the +/- byte)</h3>
+      <p>In a signed type, the highest bit means "this number is
+      negative." In an unsigned type, all bits count toward the value.
+      Same number of bytes either way; the meaning of the top bit changes.</p>
+
+      <p>This matters when scanning. A signed <code>int</code> with
+      value -1 is stored as <code>0xFFFFFFFF</code> in memory. An
+      unsigned <code>uint32</code> with value 4,294,967,295 is also
+      stored as <code>0xFFFFFFFF</code>. They're identical bytes — just
+      different interpretation. CE scans for "exact value" let you
+      pick which interpretation to use.</p>
+
+      <h2>Floating point: float and double</h2>
+
+      <p>Floats hold fractional numbers using IEEE 754 encoding. Two
+      sizes you'll see in games:</p>
+
+      <table>
+        <thead><tr><th>Type</th><th>Bytes</th><th>Use in games</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>float</code></td>
+            <td>4</td>
+            <td>Player position (x/y/z), velocities, rotations,
+            timers in seconds, animation times, FOV degrees, accel
+            ratios. THE most common float type in game memory.</td>
+          </tr>
+          <tr>
+            <td><code>double</code></td>
+            <td>8</td>
+            <td>High-precision math (physics simulation,
+            astronomical sims). Rare in game state itself.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>The float bit-pattern trap</h3>
+      <p>The value <code>1.0</code> as a 4-byte float has bits
+      <code>0x3F800000</code>. The integer 1 has bits
+      <code>0x00000001</code>. Same number, completely different
+      memory representation.</p>
+
+      <p>In Cheat Engine: when scanning for a position coordinate,
+      if you set scan type to "4 Bytes" and search for "1" — you'll
+      get hundreds of hits but NONE will be the position cell.
+      You have to set scan type to "Float" and search for "1.0"
+      to find it.</p>
+
+      <pre><code>// Scanning for player x=12.5 in CE:
+//   Wrong: scan type "4 Bytes", value 12        -> 0 useful hits
+//   Wrong: scan type "4 Bytes", value 0x41480000 (12.5 as float bits) -> works but unintuitive
+//   Right: scan type "Float", value 12.5        -> finds the cell
+
+// Reading the same cell from C++:
+float pos_x;
+ReadProcessMemory(hGame, addr, &amp;pos_x, sizeof(float), NULL);
+// pos_x now == 12.5f
+
+// Wrong way:
+int wrong;
+ReadProcessMemory(hGame, addr, &amp;wrong, sizeof(int), NULL);
+// wrong == 0x41480000 — useless number unless you know it's float bits</code></pre>
+
+      <h3>How to tell if a field is float or int</h3>
+      <p>Three heuristics:</p>
+      <ul>
+        <li><strong>Position / rotation / time-in-seconds</strong>: almost
+        always <code>float</code>. Game world coordinates are continuous.</li>
+        <li><strong>HP / ammo / score / kill count</strong>: usually
+        <code>int</code> (or <code>short</code>). Discrete values.</li>
+        <li><strong>Speed / FOV / damage multipliers</strong>: usually
+        <code>float</code> because they're ratios.</li>
+        <li><strong>If your int scan returns nothing for a value you
+        KNOW is the right one</strong>: try float. If float scan returns
+        nothing: try the other endianness or a different size.</li>
+      </ul>
+
+      <h2>Booleans</h2>
+
+      <p>A C++ <code>bool</code> is technically 1 byte (<code>0x00</code>
+      = false, <code>0x01</code> = true). But many compilers
+      pad <code>bool</code> in a struct to align the next field on a
+      4-byte boundary, so a struct with <code>{int hp; bool dead; int
+      ammo;}</code> often takes 12 bytes (4 + 4 + 4) not 9.</p>
+
+      <p>Sometimes games use <code>int</code>-as-boolean
+      (1 = alive, 0 = dead, stored as full int) for performance reasons
+      — saves alignment padding. So scan booleans BOTH as 1-byte AND
+      4-byte if you're not sure.</p>
+
+      <h2>Strings: char arrays</h2>
+
+      <p>A "string" in C / C++ is just a sequence of <code>char</code>
+      bytes ending in a null byte (<code>\\0</code>). The string
+      <code>"HACK"</code> in memory is:</p>
+
+      <pre><code>0x48 0x41 0x43 0x4B 0x00
+ 'H'  'A'  'C'  'K' '\\0'</code></pre>
+
+      <p>Reading: read bytes one at a time until you hit <code>\\0</code>.
+      Or just read N bytes if you know the field's max length.</p>
+
+      <pre><code>// Read a player name (max 32 chars) from memory:
+char name[33] = {0};   // +1 for null
+ReadProcessMemory(hGame, name_addr, name, 32, NULL);
+printf("Player name: %s\\n", name);   // %s reads until null</code></pre>
+
+      <p><strong>Wide strings</strong> (Unicode): each character is 2
+      bytes (<code>wchar_t</code>) instead of 1. <code>"HACK"</code>
+      as wide string is:</p>
+
+      <pre><code>0x48 0x00 0x41 0x00 0x43 0x00 0x4B 0x00 0x00 0x00
+ 'H'      'A'      'C'      'K'       null</code></pre>
+
+      <p>Modern Windows uses wide strings everywhere — that's why
+      window class names, file paths, and most Win32 APIs come in
+      <code>A</code> and <code>W</code> variants
+      (<code>CreateFileA</code> takes <code>char*</code>,
+      <code>CreateFileW</code> takes <code>wchar_t*</code>).</p>
+
+      <h2>Vectors: position and direction</h2>
+
+      <p>Game engines pack 2D, 3D, and 4D coordinates into vector types.
+      A vector is just N floats packed contiguously in memory.</p>
+
+      <table>
+        <thead><tr><th>Type</th><th>Layout</th><th>Bytes</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>Vector2</code></td>
+            <td>{ float x; float y; }</td>
+            <td>8</td>
+            <td>2D positions, screen coords, UV texture coords</td>
+          </tr>
+          <tr>
+            <td><code>Vector3</code></td>
+            <td>{ float x; float y; float z; }</td>
+            <td>12</td>
+            <td>3D positions, velocities, rotations (Euler angles), normals</td>
+          </tr>
+          <tr>
+            <td><code>Vector4</code> / <code>Quaternion</code></td>
+            <td>{ float x; float y; float z; float w; }</td>
+            <td>16</td>
+            <td>Quaternion rotations, RGBA colors, plane equations</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>Vectors are CONTIGUOUS in memory — no pointers between fields,
+      just three floats in a row. This means you can find them in
+      Cheat Engine by scanning for the X coordinate, then verifying
+      that the next 4 bytes are a plausible Y value.</p>
+
+      <pre><code>// Read a Vector3 player position from memory:
+struct Vector3 { float x, y, z; };
+Vector3 pos;
+ReadProcessMemory(hGame, pos_addr, &amp;pos, sizeof(Vector3), NULL);
+printf("Player at (%f, %f, %f)\\n", pos.x, pos.y, pos.z);
+
+// Or as raw floats:
+float coords[3];
+ReadProcessMemory(hGame, pos_addr, coords, 12, NULL);
+// coords[0] = x, coords[1] = y, coords[2] = z</code></pre>
+
+      <h2>Matrices: view transforms</h2>
+
+      <p>A 4x4 matrix is 16 floats = 64 bytes. Used for transforming
+      3D world coordinates to 2D screen coordinates (the
+      "view-projection matrix" or VP matrix).</p>
+
+      <p>For ESP cheats, finding the VP matrix lets you do
+      world-to-screen math yourself — convert any enemy's 3D position
+      into pixel coordinates on the player's screen, then draw a box
+      there.</p>
+
+      <pre><code>struct Matrix4x4 {
+    float m[4][4];   // row-major or column-major depends on engine
+};
+
+// Read the view matrix:
+Matrix4x4 viewMat;
+ReadProcessMemory(hGame, viewmat_addr, &amp;viewMat, 64, NULL);
+
+// World-to-screen transform (simplified):
+Vector3 enemy_world = ...;
+float screen_x, screen_y;
+WorldToScreen(viewMat, enemy_world, screen_x, screen_y);
+DrawBox(screen_x, screen_y, ...);</code></pre>
+
+      <p>Real engines also use 3x4, 3x3, and other matrix sizes. Common
+      ESP-related sizes: 64 bytes (4x4), 48 bytes (3x4), 36 bytes (3x3).</p>
+
+      <h2>Pointers</h2>
+
+      <p>A pointer is a memory address. Its size depends on the build:</p>
+
+      <ul>
+        <li><strong>x86 (32-bit) game</strong>: pointers are 4 bytes
+        (<code>uintptr_t</code> = <code>uint32_t</code>)</li>
+        <li><strong>x64 (64-bit) game</strong>: pointers are 8 bytes
+        (<code>uintptr_t</code> = <code>uint64_t</code>)</li>
+      </ul>
+
+      <p>Combat Arms is x86, so pointers there are 4 bytes. Modern AAA
+      games (Apex, Valorant, CS2) are x64, so pointers are 8 bytes.</p>
+
+      <pre><code>// Reading a pointer in C++ (cross-platform):
+uintptr_t player_ptr;
+ReadProcessMemory(hGame, ptr_addr, &amp;player_ptr,
+                  sizeof(uintptr_t), NULL);
+// player_ptr now holds the player struct's base address.
+
+// Then dereference it to get the next field down the chain:
+int hp;
+ReadProcessMemory(hGame, player_ptr + HP_OFFSET, &amp;hp, sizeof(int), NULL);</code></pre>
+
+      <h2>Windows-specific types</h2>
+
+      <p>The Windows headers define a bunch of typedef aliases for
+      common sizes. They're not different from the C++ types — just
+      different names that show up in API signatures:</p>
+
+      <table>
+        <thead><tr><th>Windows type</th><th>What it actually is</th></tr></thead>
+        <tbody>
+          <tr><td><code>BYTE</code></td><td><code>uint8_t</code> (1 byte)</td></tr>
+          <tr><td><code>WORD</code></td><td><code>uint16_t</code> (2 bytes)</td></tr>
+          <tr><td><code>DWORD</code></td><td><code>uint32_t</code> (4 bytes)</td></tr>
+          <tr><td><code>QWORD</code></td><td><code>uint64_t</code> (8 bytes)</td></tr>
+          <tr><td><code>BOOL</code></td><td><code>int32_t</code> — Windows API, NOT C++ bool. 4 bytes.</td></tr>
+          <tr><td><code>HANDLE</code></td><td>Opaque pointer. 4 bytes on x86, 8 on x64. Used for processes, threads, files.</td></tr>
+          <tr><td><code>HMODULE</code></td><td>Module base address. Same size as HANDLE.</td></tr>
+          <tr><td><code>LPVOID</code></td><td><code>void*</code> — generic pointer.</td></tr>
+          <tr><td><code>SIZE_T</code></td><td>Unsigned size value. Pointer-sized.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Cheat Engine scan-type cheat sheet</h2>
+
+      <p>When you open the scan type dropdown in CE, this is what each
+      one matches:</p>
+
+      <table>
+        <thead><tr><th>CE scan type</th><th>C++ type</th><th>Bytes</th></tr></thead>
+        <tbody>
+          <tr><td>Byte</td><td><code>uint8_t / int8_t</code></td><td>1</td></tr>
+          <tr><td>2 Bytes</td><td><code>uint16_t / int16_t</code></td><td>2</td></tr>
+          <tr><td>4 Bytes</td><td><code>uint32_t / int32_t</code></td><td>4</td></tr>
+          <tr><td>8 Bytes</td><td><code>uint64_t / int64_t</code></td><td>8</td></tr>
+          <tr><td>Float</td><td><code>float</code></td><td>4</td></tr>
+          <tr><td>Double</td><td><code>double</code></td><td>8</td></tr>
+          <tr><td>String</td><td><code>char[]</code></td><td>variable</td></tr>
+          <tr><td>Array of byte</td><td>raw bytes (sigscan)</td><td>variable</td></tr>
+          <tr><td>Binary</td><td>bit-by-bit pattern</td><td>variable</td></tr>
+          <tr><td>All</td><td>scans all numeric types in parallel</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Picking the right type when you don't know</h2>
+
+      <p>Real workflow when you're staring at a value in a game and
+      don't know the type:</p>
+
+      <ol>
+        <li><strong>Visible discrete numbers</strong> (HP, ammo, score)
+        → start with "4 Bytes" int. If 0 results, try "2 Bytes" or "Byte".</li>
+        <li><strong>Visible decimal numbers</strong> (FOV, sensitivity,
+        time-remaining-in-seconds) → "Float".</li>
+        <li><strong>Position/rotation</strong> → "Float". Almost always.</li>
+        <li><strong>Names / chat / map names</strong> → "String"
+        (try Unicode for modern games, ASCII for older).</li>
+        <li><strong>Boolean state</strong> (alive, hidden, frozen) →
+        "Byte" first. If nothing, try "4 Bytes" — some games use
+        int-as-bool.</li>
+        <li><strong>Still no hits?</strong> Use "All" scan type. Slow
+        but it tries every numeric format. The hit you find tells you
+        the type.</li>
+      </ol>
+
+      <h2>The take-away pattern</h2>
+
+      <p>Every cheat operation comes back to: pick the right type,
+      read the right byte count, write the right bit pattern. Once
+      you internalize that <code>float</code> and <code>int</code>
+      with the same numeric value have COMPLETELY DIFFERENT bytes,
+      and that <code>uint16</code> and <code>uint32</code> with the
+      same numeric value have DIFFERENT byte counts, the entire memory-
+      manipulation workflow becomes mechanical instead of mysterious.</p>
+
+      <p>The simulator's struct view (the new tab) shows each field's
+      type — so you can see live which fields are <code>int32</code>,
+      <code>float</code>, <code>ptr</code>, etc. Use it as a visual
+      reference next time you read a real game's struct in IDA.</p>
+    `,
+  },
 ];
 
 export class Library {

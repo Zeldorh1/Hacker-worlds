@@ -24,33 +24,36 @@ import { memory } from "./sim-memory.js";
 
 // Player struct field layout — must match what target binds at the
 // playerStructBase. Mirrors the comments in target-assaultzone.js.
+// Type column: int32 (4 bytes signed), uint32 (4 bytes unsigned),
+// ptr (pointer-sized: 4 on x86, 8 on x64). See "C++ Types for Cheat
+// Devs" codex article for what each type means at the byte level.
 const PLAYER_FIELDS = [
-  { offset: 0x00, name: "hp",                  label: "player.hp" },
-  { offset: 0x04, name: "ammo",                label: "player.ammo" },
-  { offset: 0x08, name: "x",                   label: "player.x" },
-  { offset: 0x0C, name: "y",                   label: "player.y" },
-  { offset: 0x10, name: "moveCooldownMs",      label: "player.moveCooldownMs" },
-  { offset: 0x14, name: "currentWeaponPtr",    label: "player.currentWeaponPtr" },
-  { offset: 0x18, name: "alive",               label: "player.alive" },
-  { offset: 0x1C, name: "respawnTimerMs",      label: "player.respawnTimerMs" },
-  { offset: 0x20, name: "respawn.x",           label: "respawn.x" },
-  { offset: 0x24, name: "respawn.y",           label: "respawn.y" },
-  { offset: 0x28, name: "noClip",              label: "player.noClip" },
+  { offset: 0x00, name: "hp",                  type: "int32", label: "player.hp" },
+  { offset: 0x04, name: "ammo",                type: "int32", label: "player.ammo" },
+  { offset: 0x08, name: "x",                   type: "int32", label: "player.x" },
+  { offset: 0x0C, name: "y",                   type: "int32", label: "player.y" },
+  { offset: 0x10, name: "moveCooldownMs",      type: "int32", label: "player.moveCooldownMs" },
+  { offset: 0x14, name: "currentWeaponPtr",    type: "ptr",   label: "player.currentWeaponPtr" },
+  { offset: 0x18, name: "alive",               type: "int32", label: "player.alive" },
+  { offset: 0x1C, name: "respawnTimerMs",      type: "int32", label: "player.respawnTimerMs" },
+  { offset: 0x20, name: "respawn.x",           type: "int32", label: "respawn.x" },
+  { offset: 0x24, name: "respawn.y",           type: "int32", label: "respawn.y" },
+  { offset: 0x28, name: "noClip",              type: "int32", label: "player.noClip" },
 ];
 
 // Weapon struct fields — referenced via player + 0x14 chain.
 const WEAPON_FIELDS = [
-  { offset: 0x00, name: "damage",              label: "weapon.damage" },
-  { offset: 0x04, name: "cooldownMs",          label: "weapon.cooldownMs" },
-  { offset: 0x08, name: "recoilPerShot",       label: "weapon.recoilPerShot" },
+  { offset: 0x00, name: "damage",              type: "int32", label: "weapon.damage" },
+  { offset: 0x04, name: "cooldownMs",          type: "int32", label: "weapon.cooldownMs" },
+  { offset: 0x08, name: "recoilPerShot",       type: "int32", label: "weapon.recoilPerShot" },
 ];
 
 // Enemy struct fields (each enemy entry in the entity array).
 const ENEMY_FIELD_DEFS = [
-  { offset: 0x00, name: "id" },
-  { offset: 0x04, name: "x" },
-  { offset: 0x08, name: "y" },
-  { offset: 0x0C, name: "hp" },
+  { offset: 0x00, name: "id",   type: "int32" },
+  { offset: 0x04, name: "x",    type: "int32" },
+  { offset: 0x08, name: "y",    type: "int32" },
+  { offset: 0x0C, name: "hp",   type: "int32" },
 ];
 
 function formatVal(v) {
@@ -62,12 +65,29 @@ function formatVal(v) {
   return String(v);
 }
 
-function fieldRow(label, offset, value, frozen) {
+// Type → byte size + display color, helps reinforce the C++ Types codex.
+const TYPE_INFO = {
+  int32:  { bytes: 4, color: "#22d3ee", short: "i32" },
+  uint32: { bytes: 4, color: "#22d3ee", short: "u32" },
+  int16:  { bytes: 2, color: "#a78bfa", short: "i16" },
+  uint16: { bytes: 2, color: "#a78bfa", short: "u16" },
+  int8:   { bytes: 1, color: "#fbbf24", short: "i8"  },
+  uint8:  { bytes: 1, color: "#fbbf24", short: "u8"  },
+  float:  { bytes: 4, color: "#34d399", short: "f32" },
+  double: { bytes: 8, color: "#34d399", short: "f64" },
+  ptr:    { bytes: 8, color: "#f472b6", short: "ptr" },
+  bool:   { bytes: 1, color: "#fbbf24", short: "b" },
+};
+
+function fieldRow(label, offset, value, frozen, type) {
   const cls = frozen ? "struct-field frozen" : "struct-field";
   const offHex = "+0x" + offset.toString(16).toUpperCase().padStart(2, "0");
+  const tinfo = TYPE_INFO[type] || { bytes: 4, color: "#94a3b8", short: type || "?" };
+  const typeBadge = `<span class="type-badge" style="color:${tinfo.color};border-color:${tinfo.color}88;" title="${tinfo.bytes} byte${tinfo.bytes !== 1 ? 's' : ''}">${tinfo.short}</span>`;
   return `
     <div class="${cls}">
       <span class="offset">${offHex}</span>
+      ${typeBadge}
       <span class="name">${label}</span>
       <span class="value">${formatVal(value)}</span>
       <span class="icon">${frozen ? "❄" : ""}</span>
@@ -128,7 +148,7 @@ export class StructView {
       const addr = memory.addressOfLabel(f.label);
       const value = addr ? memory.read(addr) : undefined;
       const frozen = addr ? memory.isFrozen(addr) : false;
-      return fieldRow(f.name, f.offset, value, frozen);
+      return fieldRow(f.name, f.offset, value, frozen, f.type);
     }).join("");
 
     return `
@@ -153,7 +173,7 @@ export class StructView {
       const addr = memory.addressOfLabel(f.label);
       const value = addr ? memory.read(addr) : undefined;
       const frozen = addr ? memory.isFrozen(addr) : false;
-      return fieldRow(f.name, f.offset, value, frozen);
+      return fieldRow(f.name, f.offset, value, frozen, f.type);
     }).join("");
 
     return `
@@ -188,7 +208,7 @@ export class StructView {
         const addr = memory.addressOfLabel(`enemy[${i}].${f.name}`);
         const value = addr ? memory.read(addr) : undefined;
         const frozen = addr ? memory.isFrozen(addr) : false;
-        return fieldRow(f.name, f.offset, value, frozen);
+        return fieldRow(f.name, f.offset, value, frozen, f.type);
       }).join("");
       const aliveTag = e.alive ? "" : ' <span style="color:#f87171">[dead]</span>';
       return `
