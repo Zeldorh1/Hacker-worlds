@@ -81,8 +81,11 @@ export const mission12 = {
         transition: background 200ms;
       ">
         <strong>LIVE SPEED:</strong> <span id="m12-speed-val" style="font-size: 16px;">— t/s</span>
+        <span style="margin-left: 12px; opacity: 0.85;">
+          PROGRESS: <span id="m12-tile-progress">0 / 30</span>
+        </span>
         <div style="font-size: 10px; opacity: 0.7; margin-top: 2px;">
-          edit candidates to 30, press Enter, watch this number
+          edit candidates to 30, press Enter; then walk 30 tiles
         </div>
       </div>`;
     if (!document.getElementById("m12-speed-indicator")) {
@@ -130,6 +133,14 @@ export const mission12 = {
         if (tilesAtLowCooldown < 0) tilesAtLowCooldown = target.tilesMoved;
       } else {
         tilesAtLowCooldown = -1;
+      }
+      // Update tile progress in the banner.
+      const $prog = document.getElementById("m12-tile-progress");
+      if ($prog) {
+        const progress = tilesAtLowCooldown >= 0
+          ? Math.min(30, target.tilesMoved - tilesAtLowCooldown)
+          : 0;
+        $prog.textContent = progress + " / 30";
       }
       if (tilesAtLowCooldown >= 0 && target.tilesMoved - tilesAtLowCooldown >= 30) {
         done = true;
