@@ -20,6 +20,7 @@ import { mission19 } from "./mission-19.js";
 import { mission20 } from "./mission-20.js";
 import { mission21 } from "./mission-21.js";
 import { mission22a } from "./mission-22a.js";
+import { mission48a } from "./mission-48a.js";
 import { mission22 } from "./mission-22.js";
 import { mission23 } from "./mission-23.js";
 import { mission24 } from "./mission-24.js";
@@ -125,6 +126,7 @@ export const MISSIONS = [
   // ============================================================
   mission21,    // INTERNAL CHEAT — first DLL exposure
   mission22a,   // (OPTIONAL) ADVANCED RAW C++ FORM — same as M21, raw addresses
+  mission48a,   // (OPTIONAL) ADVANCED MODULE BASE + CHAIN — full GetModuleHandleA + dereference
   mission22,    // WATCHDOG (anti-cheat freeze detection)
   mission23,    // CHEAT MENU
   mission24,    // DLL ANATOMY (canonical intro)

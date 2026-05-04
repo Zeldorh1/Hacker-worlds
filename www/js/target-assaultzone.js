@@ -624,6 +624,9 @@ export class AssaultZone {
     // Each entry: { auth: bool, handler: (session, opts) => void }.
     // M51 fills it with the leftover-debug-handler set; M53 enforces auth.
     this.serverHandlers = new Map();
+    // M48a — synthetic 'module base' for the simulated ac_client.exe.
+    // ASLR-style: pick a high address per session so it looks plausible.
+    this._simModuleBase = 0x60000000 + ((Math.random() * 0x10000000) | 0);
     this.serverRequireAuth = false;   // M53 flips this on
     this.session = { id: 1, privileged: false, godMode: false, unkickable: false,
                      speedMult: 1, infiniteAmmo: false,
@@ -671,6 +674,19 @@ export class AssaultZone {
       // simulator memory. Real engines do the equivalent: verify the
       // pointer references valid mapped memory before deref.
       valid_pointer: (addr) => memory.cells.has(addr),
+      // M48a — GetModuleHandleA mirror. Returns the synthetic
+      // 'module base' for the named module (only "ac_client.exe"
+      // and the alias "game" recognized in our sim). Real Windows
+      // returns the actual loaded address of the DLL/EXE in the
+      // current process.
+      get_module_base: (name) => {
+        if (!name) return 0;
+        const lower = String(name).toLowerCase();
+        if (lower.includes("ac_client") || lower === "game" || lower === "game.exe") {
+          return this._simModuleBase || 0x60000000;
+        }
+        return 0;
+      },
       // M58 — OPK / damage-packet injection. Real C++ equivalent:
       // construct a 'damage' packet matching the server's wire format
       // and SendToServer it directly, bypassing the game's fire path.
