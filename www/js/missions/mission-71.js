@@ -49,6 +49,7 @@ export const mission71 = {
   prerequisites: ["m70"],
   timeLimit: 180,
   dll: true,
+  cheatMenu: true,
   dllTemplate: TEMPLATE,
   alert: {
     icon: "🛠",
