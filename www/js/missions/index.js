@@ -21,6 +21,7 @@ import { mission20 } from "./mission-20.js";
 import { mission21 } from "./mission-21.js";
 import { mission22a } from "./mission-22a.js";
 import { mission48a } from "./mission-48a.js";
+import { mission26a } from "./mission-26a.js";
 import { mission22 } from "./mission-22.js";
 import { mission23 } from "./mission-23.js";
 import { mission24 } from "./mission-24.js";
@@ -152,6 +153,7 @@ export const MISSIONS = [
   // -- Render-side cheats (extends M26 render hook)
   mission25, mission26,
   mission55,    // CHAMS + SKELETON ESP — render-hook variants beyond M26
+  mission26a,   // (OPTIONAL) ADVANCED D3D9 RENDER HOOK — MinHook + EndScene + WorldToScreen
   mission63,    // INFO ESP — name/HP/dist/rank stacked metadata overlay
   mission56,    // WIREFRAME WALLS — render-state manipulation
 
