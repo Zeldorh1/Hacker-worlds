@@ -196,11 +196,13 @@
             <button id="btn-dll-inject" class="primary">Inject</button>
             <button id="btn-dll-eject" class="ghost">Eject</button>
             <button id="btn-dll-export" class="ghost" hidden>Export → C++</button>
-            <label class="dll-comments-toggle" title="Hide comments to focus on executable code only">
-              <input type="checkbox" id="dll-hide-comments" />
-              <span>hide comments</span>
-            </label>
             <span id="dll-status" class="dll-status">not compiled</span>
+          </div>
+          <div class="dll-view-toggle">
+            <label class="dll-comments-toggle" title="Hide comments and teaching scaffolding — show only executable code">
+              <input type="checkbox" id="dll-hide-comments" />
+              <span>👓 hide comments — focus on executable code</span>
+            </label>
           </div>
           <textarea id="dll-code" class="dll-code" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
           <div class="dll-console-label">DLL console</div>
