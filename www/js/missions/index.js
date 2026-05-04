@@ -22,6 +22,7 @@ import { mission21 } from "./mission-21.js";
 import { mission22a } from "./mission-22a.js";
 import { mission48a } from "./mission-48a.js";
 import { mission26a } from "./mission-26a.js";
+import { mission73a } from "./mission-73a.js";
 import { mission22 } from "./mission-22.js";
 import { mission23 } from "./mission-23.js";
 import { mission24 } from "./mission-24.js";
@@ -142,6 +143,7 @@ export const MISSIONS = [
   mission71,    // STAGE 2: Add a toggle (register_cheat menu entry)
   mission72,    // STAGE 3: Multi-feature menu (4 toggles in one cheat)
   mission73,    // STAGE 4: DIY canvas menu (render hook + input hook)
+  mission73a,   // (OPTIONAL) ADVANCED D3D9+IMGUI MENU — real cheat menu blueprint
   mission74,    // STAGE 5: Persist config across re-injects (localStorage)
   // M75-M79: codex articles for auto-injector, write-your-own injector,
   //          manual mapper, external trainer capstone — see Library

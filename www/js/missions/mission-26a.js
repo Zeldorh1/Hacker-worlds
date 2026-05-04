@@ -1,91 +1,80 @@
-// Mission 26a — ADVANCED: RENDER HOOK IN RAW D3D9 FORM
+// Mission 26a — ADVANCED: D3D9 RENDER HOOK
 //
-// Optional transparency sibling to M26 RENDER HOOK. M26 used the
-// simulator's friendly register_render_hook() which abstracts away
-// the entire D3D9 vtable hook + MinHook detour + EndScene plumbing.
-// This mission shows what the REAL C++ DirectX 9 render hook looks
-// like, the way every commercial wallhack actually works.
+// Optional companion to M26 RENDER HOOK. The simulator's parser
+// handles real C++ for memory operations (types, casts, deref,
+// arithmetic). It does NOT handle real D3D9 rendering primitives
+// (you'd need an actual GPU + vtable + COM interface to call
+// IDirect3DDevice9 methods). So this mission's template is hybrid:
 //
-// Same effect as M26 (cyan ESP boxes through camouflage, kill 4
-// enemies). Optional, doesn't gate any later mission. Just shows
-// the production-tier hook code for transparency.
+//   - The pointer-chain resolution to find the entity list IS real
+//     C++ syntax that the parser executes natively
+//   - The render hook itself uses register_render_hook with comments
+//     showing the equivalent MinHook+EndScene+DrawBoxD3D pattern
 
 import { memory } from "../sim-memory.js";
 
-const TEMPLATE = `// M26a — ADVANCED: render hook the way real C++ does it.
-//
-// Real C++ for hooking IDirect3DDevice9::EndScene with MinHook:
-//
-//   #include <d3d9.h>
-//   #include <MinHook.h>
-//
-//   typedef HRESULT(__stdcall* EndScene_t)(IDirect3DDevice9*);
-//   EndScene_t oEndScene = nullptr;          // pointer to original
-//
-//   // 1. Find the device's vtable. Two ways:
-//   //    a) Hook D3DCreateDevice9 to capture the device on creation
-//   //    b) Use a 'tester' device to dump the vtable, then hook by
-//   //       index 42 (EndScene's slot in the D3D9 vtable)
-//   IDirect3DDevice9* pDevice = ...;     // captured during init
-//   void** vtable = *(void***)pDevice;
-//   void* originalEndScene = vtable[42]; // EndScene index in D3D9
-//
-//   // 2. Install the MinHook detour
-//   MH_Initialize();
-//   MH_CreateHook(originalEndScene, &HookedEndScene,
-//                 (LPVOID*)&oEndScene);
-//   MH_EnableHook(originalEndScene);
-//
-//   // 3. The hook function itself — runs every frame after the
-//   //    game's last draw call, before Present.
-//   HRESULT __stdcall HookedEndScene(IDirect3DDevice9* pDevice) {
-//       // World-to-screen project each enemy via the view matrix
-//       Matrix4x4 viewMat = ReadViewMatrix();
-//       for (auto& enemy : EnumerateEntities()) {
-//           if (!enemy.alive) continue;
-//           Vector2 screenPos;
-//           if (WorldToScreen(viewMat, enemy.worldPos, screenPos)) {
-//               DrawBoxD3D(pDevice, screenPos, BOX_SIZE, COLOR_CYAN);
-//               DrawTextD3D(pDevice, screenPos.x, screenPos.y - 12,
-//                           enemy.name, COLOR_CYAN);
-//           }
-//       }
-//       return oEndScene(pDevice);   // call original
-//   }
-//
-// In the simulator, register_render_hook(fn) is the friendly
-// equivalent. Below we use the same friendly call but with the
-// drawing logic written in the same shape as the real C++ hook
-// would have — separate world-to-screen transform, then draw, then
-// implicit 'return original' (the simulator does that for us).
+const TEMPLATE = `// M26a ADVANCED — Real C++ for memory ops + render hook for the
+// drawing layer. Comments show the full MinHook+EndScene+DrawBoxD3D
+// pattern that real wallhacks ship.
+
+uintptr_t entity_list_base = 0;
 
 void onInject() {
-  log("Installing D3D9-style render hook (same shape as MinHook EndScene detour)");
+  // Resolve the entity-list base in real C++ syntax. Real cheats
+  // cache this once after the level loads (M48a-style re-resolution
+  // would also work but costs cycles).
+  HMODULE hMod = GetModuleHandleA("ac_client.exe");
+  uintptr_t client_base = (uintptr_t)hMod;
+  // For AC the entity-array static cell is at a different offset
+  // than the player static — real cheats reverse-engineer both.
+  // Here we use the simulator's entity_arr_ptr label since the sim
+  // doesn't bind it at a hardcoded module offset like player.
+  entity_list_base = addr_of("entity_arr_ptr");
+  uintptr_t entities = *(uintptr_t*)(entity_list_base);
+  log("entity array @ " + entities);
+
+  // ────────────────────────────────────────────────────────────
+  // Real C++ render hook (this part can't execute in the sim — JS
+  // can't actually call IDirect3DDevice9 methods. Comments only.)
+  //
+  //   typedef HRESULT(__stdcall* EndScene_t)(IDirect3DDevice9*);
+  //   EndScene_t oEndScene;
+  //
+  //   void** vtable = *(void***)pDevice;
+  //   void* originalEndScene = vtable[42];
+  //   MH_CreateHook(originalEndScene, &HookedEndScene, &oEndScene);
+  //   MH_EnableHook(originalEndScene);
+  //
+  //   HRESULT __stdcall HookedEndScene(IDirect3DDevice9* pDevice) {
+  //       Matrix4x4 viewMat = ReadViewMatrix();
+  //       for (auto& enemy : EnumerateEntities()) {
+  //           if (!enemy.alive) continue;
+  //           Vector2 screenPos;
+  //           if (WorldToScreen(viewMat, enemy.worldPos, screenPos)) {
+  //               DrawBoxD3D(pDevice, screenPos, BOX_SIZE, COLOR_CYAN);
+  //               DrawTextD3D(pDevice, screenPos.x, screenPos.y - 12,
+  //                           enemy.name, COLOR_CYAN);
+  //           }
+  //       }
+  //       return oEndScene(pDevice);
+  //   }
+  //
+  // Below is the SIMULATOR equivalent — register_render_hook does
+  // what the EndScene detour would do in real C++. The drawing logic
+  // is structured the same way (WorldToScreen → DrawBox → DrawText).
+  // ────────────────────────────────────────────────────────────
 
   register_render_hook(function(ctx, sim) {
-    // This function body runs every frame, between the game's last
-    // draw call and Present — exactly like the EndScene detour above.
     const T = sim.tile_size();
-
-    // Sim equivalent of the real C++ ReadViewMatrix + WorldToScreen.
-    // In real D3D9 you'd extract the view-projection matrix from the
-    // device or game memory (M48 base discovery to find it), then
-    // do the matrix-vector projection per enemy. Sim collapses this
-    // to tile_to_screen() since our 2D world IS the screen.
-    const enemies = sim.enemies();
-    for (let i = 0; i < enemies.length; i++) {
-      const e = enemies[i];
+    for (const e of sim.enemies()) {
       if (!e.alive) continue;
-
-      // Real C++: Vector2 screenPos = WorldToScreen(viewMat, e.worldPos);
+      // Real C++: WorldToScreen(viewMat, e.worldPos, screenPos);
       const [px, py] = sim.tile_to_screen(e.x, e.y);
-
-      // Real C++: DrawBoxD3D(pDevice, screenPos, BOX_SIZE, COLOR_CYAN);
+      // Real C++: DrawBoxD3D(pDevice, screenPos, T, COLOR_CYAN);
       ctx.strokeStyle = "#22d3ee";
       ctx.lineWidth = 2;
       ctx.strokeRect(px, py, T, T);
-
-      // Real C++: DrawTextD3D(pDevice, x, y, name, COLOR_CYAN);
+      // Real C++: DrawTextD3D(pDevice, ..., enemy.name, COLOR_CYAN);
       ctx.font = "10px ui-monospace, Menlo, monospace";
       ctx.fillStyle = "rgba(0,0,0,0.6)";
       const label = e.name + " " + e.hp;
@@ -94,7 +83,6 @@ void onInject() {
       ctx.fillStyle = "#22d3ee";
       ctx.fillText(label, px + 1, py - 3);
     }
-    // Real C++: return oEndScene(pDevice);  (sim does this implicitly)
   });
 }
 
@@ -104,7 +92,7 @@ void onTick() { }
 export const mission26a = {
   id: "m26a",
   title: "ADVANCED: D3D9 RENDER HOOK",
-  brief: "Same as M26 but with the real MinHook + EndScene + WorldToScreen + DrawBox C++ shown step by step.",
+  brief: "Real C++ pointer chain + comments showing the MinHook + EndScene + WorldToScreen pattern. Same kill-count win.",
   prerequisites: ["m26"],
   timeLimit: 240,
   dll: true,
@@ -112,32 +100,27 @@ export const mission26a = {
   optional: true,
   alert: {
     icon: "🎬",
-    title: "RAW D3D9 HOOK — VTABLE + MINHOOK + ENDSCENE",
-    body: `M26's register_render_hook() abstracted the entire
-D3D9 vtable hook + MinHook detour pipeline. This
-optional sibling shows what the real C++ looks like.
+    title: "RAW D3D9 HOOK + REAL C++ POINTER CHAIN",
+    body: `Hybrid mission: the memory-side code is REAL C++
+syntax that the parser executes (HMODULE,
+uintptr_t, *(uintptr_t*) deref). The render hook
+side stays sim-form because JS can't actually call
+IDirect3DDevice9 methods — comments show the
+equivalent MinHook + EndScene + DrawBoxD3D code
+that real wallhacks ship.
 
-Five-step real-world pipeline:
-  1. Get IDirect3DDevice9* (captured during D3D init)
-  2. Read its vtable: *(void***)pDevice
-  3. Hook EndScene at vtable[42] via MinHook
-  4. In the hook: read view matrix, WorldToScreen each
-     enemy, draw boxes via DrawBoxD3D, draw text via
-     DrawTextD3D
-  5. Return oEndScene(pDevice) to call original
+What you can write in real C++ that the sim runs:
+  HMODULE hMod = GetModuleHandleA("ac_client.exe");
+  uintptr_t client_base = (uintptr_t)hMod;
+  uintptr_t entities = *(uintptr_t*)(...);
 
-Every commercial wallhack ships exactly this code.
-Some swap MinHook for Microsoft Detours, some use
-inline byte-patches instead of vtable swaps. The
-shape is universal.
+What stays as comments (non-executable in JS):
+  void** vtable = *(void***)pDevice;
+  void* originalEndScene = vtable[42];
+  MH_CreateHook(originalEndScene, &HookedEndScene,
+                &oEndScene);
 
-This template uses the simulator's friendly
-register_render_hook BUT writes the drawing logic in
-the same shape as real C++ — separate WorldToScreen
-step, then draw, then implicit 'call original'. Read
-the comments alongside the code to see the mapping.
-
-Same kill-count win as M26.`,
+Same 4-kill win as M26.`,
   },
 
   hints: [
@@ -145,13 +128,13 @@ Same kill-count win as M26.`,
       id: "compile",
       min: 6,
       when: ({ dllState }) => !dllState.compiled,
-      say: "Open DLL tab. Read the comments — they walk through the real C++ MinHook + EndScene + WorldToScreen pattern. Then Compile + Inject.",
+      say: "Open DLL tab. Top half is real C++ for the memory chain. Bottom half is the render hook (sim form) with comments showing the real D3D9 detour. Compile + Inject.",
     },
     {
       id: "kill-with-hook",
       when: ({ target, dllState }) =>
         dllState.running && target.killCount < 4,
-      say: "Hook installed (just like the real EndScene detour). Cyan boxes mark every enemy through camouflage. Walk + fire. 4 kills closes.",
+      say: "Hook installed (the EndScene-detour equivalent). Cyan boxes mark every enemy through camouflage. 4 kills closes.",
     },
   ],
 
@@ -170,10 +153,10 @@ Same kill-count win as M26.`,
     target.player.ammo = 200;
 
     dialog.script("VEX", [
-      "Same fight as M26 — camouflage on, ESP flag pinned at 0 by the watchdog. The only path through is the render-hook approach.",
-      "Difference: this template's comments show the FULL real C++ — MinHook detour, vtable[42] for EndScene, WorldToScreen via the view matrix, DrawBoxD3D / DrawTextD3D primitives.",
-      "The simulator's register_render_hook() is the friendly equivalent. Below the comments the drawing logic is written in the SAME SHAPE as the real C++ hook would have. Read both side-by-side.",
-      "4 kills with the render hook drawing — same win as M26.",
+      "Same fight as M26 — camouflage on, ESP cell pinned by watchdog. Render hook is the only path through.",
+      "Difference: the memory-side code is REAL C++ syntax now. HMODULE, uintptr_t, *(uintptr_t*) deref — all executes natively in the sim.",
+      "The render hook itself stays in sim form (register_render_hook + canvas ctx) because JS can't call real D3D9 methods. Comments above and inline show the MinHook + EndScene + DrawBoxD3D pattern that real wallhacks ship.",
+      "4 kills with the hook drawing.",
     ]);
 
     let done = false;
@@ -187,7 +170,7 @@ Same kill-count win as M26.`,
           memory.read(espAddr) === 0 &&
           target.killCount - startKills >= 4) {
         done = true;
-        complete("Render hook + 4 kills, the M26 way but written in the shape your real C++ DLL would take. MinHook + vtable[42] + EndScene + WorldToScreen + DrawBoxD3D — every commercial wallhack ships exactly this stack.");
+        complete("Render hook + 4 kills. Memory chain in real C++; render side documented as the MinHook + EndScene pattern. Closest the sim can get to real wallhack code.");
         clearInterval(interval);
         clearInterval(espWatchdog);
       }

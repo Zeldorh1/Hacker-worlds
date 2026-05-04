@@ -19,7 +19,7 @@
 // without fighting syntax. The Codex covers what the real C++ would
 // look like.
 
-import { memory } from "./sim-memory.js";
+import { memory, SimMemory } from "./sim-memory.js";
 import { AssaultZone } from "./target-assaultzone.js";
 import { codeSegment } from "./code-segment.js";
 
@@ -108,17 +108,39 @@ export class DllRuntime {
 
   /** Build the API the player's code will see as globals. */
   _makeApi() {
+    // Address normalizer — accepts both string format ("0x...") and
+    // raw numbers (for arithmetic like client_base + 0x10F4F4 in the
+    // M22a/M48a/M26a real-C++ form templates). If number, format to
+    // the simulator's 12-char-padded hex string.
+    const _addr = (a) => (typeof a === "number") ? SimMemory.formatAddr(a) : a;
     return {
-      read:          (addr) => memory.read(addr),
-      write:         (addr, val) => memory.write(addr, val),
-      freeze:        (addr) => memory.setFrozen(addr, true),
-      unfreeze:      (addr) => memory.setFrozen(addr, false),
-      is_frozen:     (addr) => memory.isFrozen(addr),
+      read:          (addr) => memory.read(_addr(addr)),
+      write:         (addr, val) => memory.write(_addr(addr), val),
+      freeze:        (addr) => memory.setFrozen(_addr(addr), true),
+      unfreeze:      (addr) => memory.setFrozen(_addr(addr), false),
+      is_frozen:     (addr) => memory.isFrozen(_addr(addr)),
       addr_of:       (label) => memory.addressOfLabel(label),
       read_label:    (label) => memory.read(memory.addressOfLabel(label)),
       write_label:   (label, val) => memory.write(memory.addressOfLabel(label), val),
       freeze_label:  (label) => memory.setFrozen(memory.addressOfLabel(label), true),
-      find_pointers_to: (addr) => memory.findPointersTo(addr, 0x80, 4),
+      find_pointers_to: (addr) => memory.findPointersTo(_addr(addr), 0x80, 4),
+      // Win32 API aliases — let player write GetModuleHandleA("ac_client.exe")
+      // exactly like real C++. Returns the synthetic module base from
+      // target.engine.get_module_base.
+      GetModuleHandleA: (name) => {
+        const t = (typeof window !== "undefined" && window.__hw)
+          ? window.__hw.target : null;
+        return t && t.engine ? t.engine.get_module_base(name) : 0;
+      },
+      GetModuleHandleW: (name) => {
+        const t = (typeof window !== "undefined" && window.__hw)
+          ? window.__hw.target : null;
+        return t && t.engine ? t.engine.get_module_base(name) : 0;
+      },
+      // Sleep alias — for cheat_thread loops in real-C++ form templates.
+      // Returns a Promise the parser ignores; the simulator runs onTick
+      // every frame regardless.
+      Sleep: (ms) => undefined,
       log:           (msg) => this.log(String(msg)),
       // M26 — install a render hook. Every frame, after the game
       // finishes drawing, fn is called with (ctx, sim). ctx is the
@@ -389,6 +411,7 @@ export class DllRuntime {
         "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
         "call_engine_function", "sim_enemies",
         "patch_code", "list_code_addresses", "new_message",
+        "GetModuleHandleA", "GetModuleHandleW", "Sleep",
             wrapped
           );
           const a = this._makeApi();
@@ -401,7 +424,8 @@ export class DllRuntime {
         a.register_proc_enum_hook, a.register_module_enum_hook,
         a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook,
         a.call_engine_function, a.sim_enemies,
-        a.patch_code, a.list_code_addresses, a.new_message
+        a.patch_code, a.list_code_addresses, a.new_message,
+        a.GetModuleHandleA, a.GetModuleHandleW, a.Sleep
           );
           // Fire the payload's onInject immediately. Schedule onTick
           // alongside the parent's onTick by appending to a list.
@@ -454,12 +478,64 @@ export class DllRuntime {
     // Strip C-style cruft so JS new Function() accepts the body. We
     // keep the user-typed code mostly intact — just rewrite a few
     // patterns that would be JS errors.
-    const js = source
-      // void / int / auto declarations → just the function name
-      .replace(/\b(?:void|int|float|double|auto|bool)\s+(?=\w+\s*\()/g, "function ")
-      // // comments stay
-      // /* */ comments stay
-      ;
+    //
+    // The preprocessor handles real C++ syntax that the M22a/M48a/M26a
+    // 'transparency sibling' missions use, so the player can write code
+    // that looks LIKE real C++ in the editor and have it executed
+    // against the simulator. Specifically translates:
+    //   - Type declarations:   uintptr_t x = ... → var x = ...
+    //   - Type casts:          (uintptr_t)expr → expr
+    //   - Pointer-deref read:  *(int*)(addr) → read(addr)
+    //   - Pointer-deref write: *(int*)(addr) = val; → write(addr, val);
+    //   - const TYPE x = ...   → const x = ...
+    //
+    // Plus the existing function-decl conversion (void/int/etc. → function).
+    const TYPE_NAMES = "HMODULE|HANDLE|HHOOK|HWND|uintptr_t|intptr_t|" +
+      "DWORD|WORD|BYTE|QWORD|BOOL|" +
+      "int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t|" +
+      "LPVOID|LPCVOID|SIZE_T|HRESULT|" +
+      "Vector2|Vector3|Vector4|Matrix4x4|" +
+      "ImVec2|ImVec4|IDirect3DDevice9";
+    const SCALAR_TYPES = TYPE_NAMES + "|float|int|double|bool|char|void|wchar_t";
+
+    let js = source;
+
+    // ORDER MATTERS. Pointer-deref patterns must run BEFORE cast strips
+    // (otherwise cast strip eats the inner (TYPE*) and the deref pattern
+    // can never match). Within deref patterns: WRITE before READ.
+
+    // 1. Pointer-deref WRITE: *(TYPE*)(expr) = val; → write(expr, val);
+    js = js.replace(
+      /\*\s*\(\s*\w+\s*\*+\s*\)\s*\(([^)]+)\)\s*=\s*([^;]+);/g,
+      "write($1, $2);");
+
+    // 2. Pointer-deref READ: *(TYPE*)(expr) → read(expr) (as expression)
+    js = js.replace(
+      /\*\s*\(\s*\w+\s*\*+\s*\)\s*\(([^)]+)\)/g,
+      "read($1)");
+
+    // 3. NOW strip remaining C-style type casts: (TYPE)expr or (TYPE*)expr
+    js = js.replace(
+      new RegExp(`\\(\\s*(?:${SCALAR_TYPES})\\s*\\*?\\s*\\)\\s*`, "g"),
+      "");
+
+    // 4. const TYPE name = ... → const name = ...
+    js = js.replace(
+      new RegExp(`\\bconst\\s+(?:${SCALAR_TYPES})\\s+(?=\\w+\\s*=)`, "g"),
+      "const ");
+
+    // 5. TYPE name = ... → var name = ...   (decl with init)
+    //    TYPE name;     → var name;         (decl without init)
+    //    Excludes function decls (TYPE name(...)) — handled below.
+    js = js.replace(
+      new RegExp(`\\b(?:${TYPE_NAMES})\\s+(?=\\w+\\s*[=;])`, "g"),
+      "var ");
+
+    // 6. Existing function-decl rewrite: void/int/auto/etc. name(...) → function name(...)
+    js = js.replace(
+      /\b(?:void|int|float|double|auto|bool)\s+(?=\w+\s*\()/g,
+      "function ");
+
     const wrapped = `
 "use strict";
 ${js}
@@ -480,6 +556,7 @@ return {
         "register_isdebugger_hook", "find_pattern", "register_frame_audit_hook",
         "call_engine_function", "sim_enemies",
         "patch_code", "list_code_addresses", "new_message",
+        "GetModuleHandleA", "GetModuleHandleW", "Sleep",
         wrapped
       );
     } catch (e) {
@@ -497,7 +574,8 @@ return {
         a.register_proc_enum_hook, a.register_module_enum_hook,
         a.register_isdebugger_hook, a.find_pattern, a.register_frame_audit_hook,
         a.call_engine_function, a.sim_enemies,
-        a.patch_code, a.list_code_addresses, a.new_message
+        a.patch_code, a.list_code_addresses, a.new_message,
+        a.GetModuleHandleA, a.GetModuleHandleW, a.Sleep
       );
     } catch (e) {
       return { ok: false, error: "factory error: " + e.message };

@@ -1,98 +1,54 @@
 // Mission 48a — ADVANCED: GETMODULEHANDLE + POINTER CHAIN
 //
-// Optional transparency sibling. Same outcome as M21/M22a (HP-lock
-// against bleed) but the template demonstrates the FULL real-C++
-// pointer-resolution chain step by step:
+// Optional. Real C++ executable form. Walks the full module-base
+// resolution chain step by step with intermediate variables, so
+// each link in the chain is visible.
 //
-//   1. GetModuleHandleA("ac_client.exe")  → module base
-//   2. *(uintptr_t*)(module_base + 0x10F4F4)  → player struct base
-//   3. player_struct + 0xEC  → HP address
-//   4. *(int*)hp_addr = 100  → write
-//
-// Why this mission exists: the user was right to ask 'how do I find
-// the module base in real code?' M48 mission shows you how to FIND
-// the static offset (the 0x10F4F4 part). The Windows API codex
-// article shows you the full GetModuleHandleA call. This mission
-// puts BOTH together in a sim-runnable form, with comments mapping
-// each line to its real C++ equivalent.
-//
-// Slotted in the M22 area (display) where raw-form learning lives.
-// Optional — does not gate any later mission.
+// Same effect as M22a (HP-lock vs bleed for 30s). The difference:
+// M22a stashes HP_ADDR in onInject and writes in onTick. M48a
+// resolves the chain EVERY tick from scratch — exactly what a real
+// cheat does when it suspects the player struct might rebase between
+// frames (Counter-Strike, Apex, and many other games rebase the
+// player struct on every map change or even every respawn).
 
 import { memory } from "../sim-memory.js";
 
-const TEMPLATE = `// M48a — ADVANCED: full module-base + pointer-chain in raw form
+const TEMPLATE = `// M48a ADVANCED — Full pointer-chain resolution every tick.
 //
-// Real C++ (the version you'd actually ship):
-//
-//   // Step 1: Get module base (the new randomized address ASLR
-//   //         picked for ac_client.exe this session)
-//   HMODULE hMod = GetModuleHandleA("ac_client.exe");
-//   uintptr_t client_base = (uintptr_t)hMod;
-//
-//   // Step 2: Add the static offset to find the pointer cell that
-//   //         holds the player struct's address. The 0x10F4F4 is
-//   //         the static offset baked into ac_client.exe's .data
-//   //         section (M48 lesson — discovered via pointer scan).
-//   const uintptr_t STATIC_OFFSET = 0x10F4F4;
-//   uintptr_t static_ptr_addr = client_base + STATIC_OFFSET;
-//
-//   // Step 3: Dereference the static cell to get the current
-//   //         player struct base (this is what survives ASLR /
-//   //         restarts because the static cell is at a fixed
-//   //         offset and the game keeps it pointing at the live
-//   //         player struct).
-//   uintptr_t player_base = *(uintptr_t*)static_ptr_addr;
-//
-//   // Step 4: HP is at offset +0xEC inside the player struct.
-//   const uintptr_t HP_OFFSET = 0xEC;
-//   uintptr_t hp_addr = player_base + HP_OFFSET;
-//
-//   // Step 5: Write 100 every tick to defeat bleed.
-//   *(int*)hp_addr = 100;
+// Re-resolving the chain on every tick is what real cheats do when
+// the player struct can rebase. Slower than caching HP_ADDR (M22a)
+// but survives any pointer relocation the game might do.
 
-const STATIC_OFFSET = 0x10F4F4;
-const HP_OFFSET     = 0xEC;
-let HP_ADDR = null;
+const uintptr_t STATIC_OFFSET = 0x10F4F4;   // M48 lesson: where the
+                                            // static pointer cell lives
+const uintptr_t HP_OFFSET     = 0xEC;       // HP field inside player struct
 
 void onInject() {
-  // 1. Get module base (sim equivalent of GetModuleHandleA)
-  const client_base = call_engine_function("get_module_base", "ac_client.exe");
-  log("client_base = " + client_base.toString(16));
-
-  // 2. Sim shortcut: addr_of("local_player_ptr") returns the resolved
-  //    static-cell address. In real C++ that's:
-  //       (client_base + STATIC_OFFSET)
-  //    We log both so you can see they're conceptually the same step.
-  const static_ptr_addr = addr_of("local_player_ptr");
-  log("static cell at: " + static_ptr_addr +
-      "  (real C++: client_base + 0x" + STATIC_OFFSET.toString(16) + ")");
-
-  // 3. Dereference: read the value AT the static cell to get
-  //    player_struct base. Real C++: *(uintptr_t*)static_ptr_addr.
-  //    Sim: read(static_ptr_addr).
-  const player_base = read(static_ptr_addr);
-  log("player struct base: " + player_base);
-
-  // 4. Compute HP address. Real C++: player_base + HP_OFFSET.
-  //    Sim shortcut for the bound field:
-  HP_ADDR = addr_of("player.hp");
-  log("HP at: " + HP_ADDR + "  (real C++: player_base + 0x" +
-      HP_OFFSET.toString(16) + ")");
-
-  log("Full chain resolved — onTick will pin HP at 100");
+  log("M48a: chain resolves every tick — survives player-struct rebase");
 }
 
 void onTick() {
-  // Real C++: *(int*)HP_ADDR = 100;
-  write(HP_ADDR, 100);
+  // Step 1: Get module base. Real Windows: ASLR-randomized per launch,
+  //         GetModuleHandleA returns the current load address.
+  HMODULE hMod = GetModuleHandleA("ac_client.exe");
+  uintptr_t client_base = (uintptr_t)hMod;
+
+  // Step 2: Address of the static pointer cell (lives in .data section).
+  uintptr_t static_ptr = client_base + STATIC_OFFSET;
+
+  // Step 3: Dereference to get the player struct's current base.
+  //         If the game rebased the struct, this returns the NEW base.
+  uintptr_t player_base = *(uintptr_t*)(static_ptr);
+
+  // Step 4: Add HP offset, write 100. Real C++ pointer-deref write.
+  *(int*)(player_base + HP_OFFSET) = 100;
 }
 `;
 
 export const mission48a = {
   id: "m48a",
   title: "ADVANCED: MODULE BASE + CHAIN",
-  brief: "GetModuleHandleA + static offset + dereference + field offset. The full real-C++ resolution chain.",
+  brief: "Re-resolve the full chain every tick — survives player-struct rebases. Real C++ syntax executes natively.",
   prerequisites: ["m22a"],
   timeLimit: 240,
   dll: true,
@@ -100,35 +56,28 @@ export const mission48a = {
   optional: true,
   alert: {
     icon: "🧬",
-    title: "FULL RESOLUTION CHAIN — MODULE BASE TO HP",
-    body: `M22a showed how to use a resolved address. M48a
-shows how to RESOLVE the address from scratch — the
-full chain real C++ DLL code uses to reach any
-field in the player struct.
+    title: "FULL CHAIN, RE-RESOLVED EVERY TICK",
+    body: `M22a stashed HP_ADDR once at inject time. M48a
+re-resolves the full chain on EVERY tick — the way
+real cheats handle games where the player struct
+can rebase mid-match (CS, Apex, many others).
 
-  Step 1: GetModuleHandleA("ac_client.exe")
-          -> module base (ASLR-randomized per launch)
+Five steps per tick:
+  1. GetModuleHandleA("ac_client.exe") → module base
+  2. + 0x10F4F4 → static pointer cell address
+  3. *(uintptr_t*)(...) → player struct base (might
+     have moved since last tick — this is how it
+     survives rebases)
+  4. + 0xEC → HP address
+  5. *(int*)(...) = 100 → write
 
-  Step 2: client_base + 0x10F4F4
-          -> address of the static pointer cell
+Slower than M22a (multiple memory reads per frame
+instead of one) but bulletproof against any pointer
+relocation the game might do. Real cheats often
+choose this over caching, depending on the game.
 
-  Step 3: *(uintptr_t*)(static_cell_addr)
-          -> player struct base
-
-  Step 4: player_base + 0xEC
-          -> HP address
-
-  Step 5: *(int*)hp_addr = 100
-          -> write
-
-Five steps. Every real C++ cheat for a real game does
-exactly this dance. Once you do it once for HP, you do
-it for ammo (player_base + 0x140), recoil
-(weapon_ptr + 0x08), every other field.
-
-This optional mission walks the chain in the simulator.
-Comments map each line to the real C++ equivalent.
-Same HP-hold win condition as M22a.`,
+Real C++ syntax — the parser handles types, casts,
+deref expressions, and Win32 aliases natively.`,
   },
 
   hints: [
@@ -136,12 +85,12 @@ Same HP-hold win condition as M22a.`,
       id: "compile",
       min: 6,
       when: ({ dllState }) => !dllState.compiled,
-      say: "Open the DLL tab. Read the comments — the template walks the full chain (module base -> static offset -> dereference -> field offset). Compile + Inject.",
+      say: "Open DLL tab. Template uses real C++ syntax — HMODULE, uintptr_t, *(int*) deref. Compile + Inject.",
     },
     {
-      id: "watch-console",
+      id: "watch",
       when: ({ dllState }) => dllState.running,
-      say: "DLL Console shows each step of the chain resolved (client_base, static cell, player struct base, HP address). That's exactly what your real C++ DLL would log if you put printf statements between each step. Hold 30s to close.",
+      say: "DLL injected, chain re-resolves every tick. HP pinned at 100. Hold 30s.",
     },
   ],
 
@@ -152,10 +101,10 @@ Same HP-hold win condition as M22a.`,
     target.enableESP();
 
     dialog.script("VEX", [
-      "M22a showed you the raw write. M48a shows the FULL chain — how you'd compute the HP address from scratch in real C++ DLL code.",
-      "Five steps: GetModuleHandleA returns the module base; add the static offset (0x10F4F4) to find the pointer cell; dereference it to get the player struct base; add the HP offset (0xEC); write 100.",
-      "The template walks every step with both real C++ syntax in comments AND the sim's equivalent inline. Read top to bottom — you'll see the chain resolve in the DLL Console line by line.",
-      "Same effect as M22a: HP-lock against bleed for 30s. Optional but recommended if you want to see the full pointer chain real cheat code uses.",
+      "M48a re-resolves the full pointer chain every single tick. M22a cached HP_ADDR — fast but breaks if the player struct rebases. M48a never caches — bulletproof but slower.",
+      "Real cheats choose between the two based on the game. CS:GO and Apex use full re-resolution because the entity list rebases on every round / drop. AssaultCube doesn't rebase, so caching works.",
+      "Template walks the chain in real C++ on every onTick call: GetModuleHandleA, +offset, deref, +offset, write. The parser handles every line natively.",
+      "Same 30s HP-hold win as M22a.",
     ]);
 
     let done = false;
@@ -169,7 +118,7 @@ Same HP-hold win condition as M22a.`,
       if (dllRuntime.running && dllRuntime.injectedFor() >= 30000 &&
           target.deaths === startDeaths) {
         done = true;
-        complete("Full chain held HP for 30s. GetModuleHandleA -> static offset -> dereference -> field offset -> write. That's the C++ pattern every real game cheat uses to reach every field in the player struct.");
+        complete("Full chain re-resolved every tick for 30s. HP held at 100. Real cheats use this pattern when player structs rebase mid-match.");
         clearInterval(interval);
       }
     }, 250);

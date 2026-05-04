@@ -67,6 +67,14 @@ export class AssaultZone {
     this.map = buildMap();
     this.hazards = buildHazards(this.map);
     this.hazardsActive = false;
+    // M48a — synthetic 'module base' for the simulated ac_client.exe.
+    // ASLR-style: pick a high address per session so it looks plausible
+    // and matches how Windows randomizes real game module bases.
+    // Used by:
+    //   - target.engine.get_module_base()
+    //   - placement of local_player_ptr at module_base + 0x10F4F4 so
+    //     real-C++-form arithmetic actually resolves to the right cell
+    this._simModuleBase = 0x60000000 + ((Math.random() * 0x10000000) | 0);
     this.player = new Player();
     this.input = { up: false, down: false, left: false, right: false };
     this.lastMoveAt = 0;
@@ -379,7 +387,17 @@ export class AssaultZone {
     // real AssaultCube — the cell C++ trainers dereference to reach
     // the player struct. M48 STATIC BASE DISCOVERY teaches you to find
     // it by pointer-scanning a known player address (player.hp / .x).
-    this.addrLocalPlayerPtr = memory.bindGameValue("local_player_ptr",
+    //
+    // M48a: place this cell at the EXACT address (module_base + 0x10F4F4)
+    // so the real-C++-form templates' arithmetic actually resolves
+    // to the right cell:
+    //   uintptr_t player = *(uintptr_t*)(client_base + 0x10F4F4);
+    //   ↑ that read() actually finds this cell because it's bound here.
+    const STATIC_OFFSET = 0x10F4F4;
+    const localPlayerPtrAddr = SimMemory.formatAddr(this._simModuleBase + STATIC_OFFSET);
+    this.addrLocalPlayerPtr = memory.bindGameValueAt(
+      localPlayerPtrAddr,
+      "local_player_ptr",
       () => this.playerStructBase,
       () => {},
       "ptr");
@@ -624,9 +642,7 @@ export class AssaultZone {
     // Each entry: { auth: bool, handler: (session, opts) => void }.
     // M51 fills it with the leftover-debug-handler set; M53 enforces auth.
     this.serverHandlers = new Map();
-    // M48a — synthetic 'module base' for the simulated ac_client.exe.
-    // ASLR-style: pick a high address per session so it looks plausible.
-    this._simModuleBase = 0x60000000 + ((Math.random() * 0x10000000) | 0);
+    // _simModuleBase initialized at top of constructor (line ~77).
     this.serverRequireAuth = false;   // M53 flips this on
     this.session = { id: 1, privileged: false, godMode: false, unkickable: false,
                      speedMult: 1, infiniteAmmo: false,
