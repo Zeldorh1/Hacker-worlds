@@ -36,7 +36,11 @@ const TEMPLATE = `// MINI TRAINER 4 — Custom canvas menu (no register_cheat).
 // cheat menu is NOT used. This mirrors real DLL cheats that draw
 // their own menus on the game's canvas.
 //
-// State + UI + handlers all owned by your code.
+// State + UI + handlers all owned by your code. Full DLL skeleton —
+// MainThread does the setup, the while-loop runs the per-frame writes
+// for whichever boxes are checked.
+
+#include <windows.h>
 
 const MENU_X = 20;
 const MENU_Y = 20;
@@ -63,7 +67,7 @@ function rectFor(i) {
   return { x: MENU_X + 8, y, w: BOX_SZ, h: BOX_SZ };
 }
 
-void onInject() {
+DWORD WINAPI MainThread(LPVOID lpParam) {
   HMODULE hMod = GetModuleHandleA("ac_client.exe");
   uintptr_t client_base = (uintptr_t)hMod;
   uintptr_t player_ptr  = *(uintptr_t*)(client_base + 0x10F4F4);
@@ -122,13 +126,22 @@ void onInject() {
     }
     return false;
   });
+
+  // Apply each enabled feature's effect every frame.
+  while (true) {
+    for (const f of features) {
+      if (f.on) f.tick();
+    }
+    Sleep(16);
+  }
 }
 
-void onTick() {
-  // Apply each enabled feature's effect every frame.
-  for (const f of features) {
-    if (f.on) f.tick();
+BOOL WINAPI DllMain(HINSTANCE hMod, DWORD reason, LPVOID lpReserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(hMod);
+    CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
   }
+  return TRUE;
 }
 `;
 

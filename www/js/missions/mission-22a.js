@@ -7,13 +7,16 @@
 
 import { memory } from "../sim-memory.js";
 
-const TEMPLATE = `// M22a ADVANCED — Real C++ syntax. The simulator parses C++ types,
-// casts, and *(int*) pointer-deref expressions. What you see is what
-// your real DLL would actually look like.
+const TEMPLATE = `// M22a ADVANCED — Real C++ syntax in a complete injectable-DLL
+// skeleton. The simulator parses C++ types, casts, *(int*) pointer-
+// deref expressions, plus the DllMain/MainThread/CreateThread shape.
+// What you see is line-for-line what your real DLL would look like.
+
+#include <windows.h>
 
 uintptr_t HP_ADDR = 0;
 
-void onInject() {
+DWORD WINAPI MainThread(LPVOID lpParam) {
   // 1. Get module base (the address Windows loaded ac_client.exe at).
   HMODULE hMod = GetModuleHandleA("ac_client.exe");
   uintptr_t client_base = (uintptr_t)hMod;
@@ -27,12 +30,21 @@ void onInject() {
   HP_ADDR = player_ptr + 0xEC;
 
   log("Resolved HP_ADDR = " + HP_ADDR);
+
+  // 4. Per-frame loop — pin HP at 100. Real C++ pointer-deref write.
+  //    Same primitive as *(int*)hp_addr = 100; in real DLL code.
+  while (true) {
+    *(int*)(HP_ADDR) = 100;
+    Sleep(16);
+  }
 }
 
-void onTick() {
-  // Real C++ pointer-deref write — pin HP at 100 every frame.
-  // Same primitive as *(int*)hp_addr = 100; in real DLL code.
-  *(int*)(HP_ADDR) = 100;
+BOOL WINAPI DllMain(HINSTANCE hMod, DWORD reason, LPVOID lpReserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(hMod);
+    CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+  }
+  return TRUE;
 }
 `;
 

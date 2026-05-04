@@ -18,6 +18,12 @@ const TEMPLATE = `// M73a ADVANCED — DIY menu the way real DLL cheats build it
 // like) is shown in comments. The simulator's JS-flavored render
 // hook below does the EQUIVALENT drawing because JS can't link
 // against ImGui or call IDirect3DDevice9 methods.
+//
+// Wrapped in a complete injectable-DLL skeleton — DllMain spawns
+// MainThread which resolves addresses, installs the menu hooks, and
+// runs the per-frame cheat loop.
+
+#include <windows.h>
 
 // ─── Cheat state booleans (real C++ globals) ──────────────────
 bool g_HpFreeze    = false;
@@ -84,7 +90,7 @@ uintptr_t AMMO_ADDR  = 0;
 uintptr_t RECOIL_ADDR = 0;
 uintptr_t ESP_ADDR   = 0;
 
-void onInject() {
+DWORD WINAPI MainThread(LPVOID lpParam) {
   // Resolve all four cheat addresses once via the M22a/M48a chain.
   HMODULE hMod = GetModuleHandleA("ac_client.exe");
   uintptr_t client_base = (uintptr_t)hMod;
@@ -145,14 +151,25 @@ void onInject() {
     }
     return false;
   });
+
+  // Per-frame cheat application — real C++ pointer-deref writes for
+  // each enabled feature. Mirrors the typical ImGui-cheat pattern of
+  // "if (g_Bool) WriteProcessMemory(...);" inside the worker loop.
+  while (true) {
+    if (g_HpFreeze)     *(int*)(HP_ADDR)    = 9999;
+    if (g_InfiniteAmmo) *(int*)(AMMO_ADDR)  = 999;
+    if (g_NoRecoil)     *(int*)(RECOIL_ADDR) = 0;
+    if (g_ESP)          *(int*)(ESP_ADDR)   = 1;
+    Sleep(16);
+  }
 }
 
-void onTick() {
-  // Real C++ pointer-deref writes for each enabled feature.
-  if (g_HpFreeze)     *(int*)(HP_ADDR)    = 9999;
-  if (g_InfiniteAmmo) *(int*)(AMMO_ADDR)  = 999;
-  if (g_NoRecoil)     *(int*)(RECOIL_ADDR) = 0;
-  if (g_ESP)          *(int*)(ESP_ADDR)   = 1;
+BOOL WINAPI DllMain(HINSTANCE hMod, DWORD reason, LPVOID lpReserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(hMod);
+    CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+  }
+  return TRUE;
 }
 `;
 

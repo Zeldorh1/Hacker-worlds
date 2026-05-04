@@ -23,11 +23,14 @@ import { memory } from "../sim-memory.js";
 
 const TEMPLATE = `// MINI TRAINER 2 — HP freeze with on/off toggle.
 // register_cheat hosts the menu UI (sim equivalent of ImGui::Checkbox).
-// The tick handler does a real C++ pointer-deref write.
+// The tick handler does a real C++ pointer-deref write. Full DLL
+// skeleton — same shape you'd ship for real injection.
+
+#include <windows.h>
 
 uintptr_t HP_ADDR = 0;
 
-void onInject() {
+DWORD WINAPI MainThread(LPVOID lpParam) {
   HMODULE hMod = GetModuleHandleA("ac_client.exe");
   uintptr_t client_base = (uintptr_t)hMod;
   uintptr_t player_ptr = *(uintptr_t*)(client_base + 0x10F4F4);
@@ -37,9 +40,20 @@ void onInject() {
   register_cheat("HP Freeze", function() {
     *(int*)(HP_ADDR) = 9999;
   });
+
+  // Keep the worker thread alive — the menu fires its own tick handlers.
+  while (true) {
+    Sleep(16);
+  }
 }
 
-void onTick() { }
+BOOL WINAPI DllMain(HINSTANCE hMod, DWORD reason, LPVOID lpReserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(hMod);
+    CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+  }
+  return TRUE;
+}
 `;
 
 export const mission71 = {

@@ -38,13 +38,16 @@ import { memory } from "../sim-memory.js";
 const TEMPLATE = `// MINI TRAINER 3 — Multi-feature menu.
 // Resolve every address ONCE at inject. Each register_cheat handler
 // does a real C++ pointer-deref write when its box is ticked.
+// Full DLL skeleton — exactly what a real multi-feature trainer ships.
+
+#include <windows.h>
 
 uintptr_t HP_ADDR     = 0;
 uintptr_t AMMO_ADDR   = 0;
 uintptr_t RECOIL_ADDR = 0;
 uintptr_t ESP_ADDR    = 0;
 
-void onInject() {
+DWORD WINAPI MainThread(LPVOID lpParam) {
   HMODULE hMod = GetModuleHandleA("ac_client.exe");
   uintptr_t client_base = (uintptr_t)hMod;
   uintptr_t player_ptr  = *(uintptr_t*)(client_base + 0x10F4F4);
@@ -58,9 +61,19 @@ void onInject() {
   register_cheat("Infinite Ammo", function() { *(int*)(AMMO_ADDR)   = 999;  });
   register_cheat("No Recoil",     function() { *(int*)(RECOIL_ADDR) = 0;    });
   register_cheat("ESP",           function() { *(int*)(ESP_ADDR)    = 1;    });
+
+  while (true) {
+    Sleep(16);
+  }
 }
 
-void onTick() { }
+BOOL WINAPI DllMain(HINSTANCE hMod, DWORD reason, LPVOID lpReserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(hMod);
+    CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+  }
+  return TRUE;
+}
 `;
 
 export const mission72 = {

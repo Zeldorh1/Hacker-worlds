@@ -15,11 +15,15 @@ import { memory } from "../sim-memory.js";
 
 const TEMPLATE = `// M26a ADVANCED — Real C++ for memory ops + render hook for the
 // drawing layer. Comments show the full MinHook+EndScene+DrawBoxD3D
-// pattern that real wallhacks ship.
+// pattern that real wallhacks ship. Wrapped in a complete injectable-
+// DLL skeleton — DllMain spawns MainThread which installs the hook
+// and parks the worker thread.
+
+#include <windows.h>
 
 uintptr_t entity_list_base = 0;
 
-void onInject() {
+DWORD WINAPI MainThread(LPVOID lpParam) {
   // Resolve the entity-list base in real C++ syntax. Real cheats
   // cache this once after the level loads (M48a-style re-resolution
   // would also work but costs cycles).
@@ -84,9 +88,22 @@ void onInject() {
       ctx.fillText(label, px + 1, py - 3);
     }
   });
+
+  // The render hook fires every frame on its own — the worker thread
+  // just parks. Same pattern real wallhacks use (the EndScene detour
+  // is the active surface; the spawn thread is dormant after init).
+  while (true) {
+    Sleep(16);
+  }
 }
 
-void onTick() { }
+BOOL WINAPI DllMain(HINSTANCE hMod, DWORD reason, LPVOID lpReserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(hMod);
+    CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+  }
+  return TRUE;
+}
 `;
 
 export const mission26a = {

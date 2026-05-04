@@ -27,21 +27,35 @@
 import { memory } from "../sim-memory.js";
 
 const TEMPLATE = `// MINI TRAINER 1 — Single-address HP freeze.
-// Real C++ DLL skeleton: resolve the chain once, write every tick.
+// Real injectable-DLL skeleton: DllMain spawns a thread, the thread
+// resolves the chain once, then the while-loop writes every tick.
+// Compile this with MSVC as a 32-bit DLL and inject — same code,
+// real AssaultCube.
+
+#include <windows.h>
 
 const int TARGET_HP = 9999;
 uintptr_t HP_ADDR = 0;
 
-void onInject() {
+DWORD WINAPI MainThread(LPVOID lpParam) {
   HMODULE hMod = GetModuleHandleA("ac_client.exe");
   uintptr_t client_base = (uintptr_t)hMod;
   uintptr_t player_ptr = *(uintptr_t*)(client_base + 0x10F4F4);
   HP_ADDR = player_ptr + 0xEC;
   log("MINI TRAINER 1 online — HP_ADDR = " + HP_ADDR);
+
+  while (true) {
+    *(int*)(HP_ADDR) = TARGET_HP;
+    Sleep(16);
+  }
 }
 
-void onTick() {
-  *(int*)(HP_ADDR) = TARGET_HP;
+BOOL WINAPI DllMain(HINSTANCE hMod, DWORD reason, LPVOID lpReserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(hMod);
+    CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+  }
+  return TRUE;
 }
 `;
 

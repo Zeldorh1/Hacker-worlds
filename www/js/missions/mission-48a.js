@@ -18,30 +18,44 @@ const TEMPLATE = `// M48a ADVANCED — Full pointer-chain resolution every tick.
 // Re-resolving the chain on every tick is what real cheats do when
 // the player struct can rebase. Slower than caching HP_ADDR (M22a)
 // but survives any pointer relocation the game might do.
+// Full DLL skeleton — DllMain spawns the worker, the loop re-walks
+// the chain every iteration.
+
+#include <windows.h>
 
 const uintptr_t STATIC_OFFSET = 0x10F4F4;   // M48 lesson: where the
                                             // static pointer cell lives
 const uintptr_t HP_OFFSET     = 0xEC;       // HP field inside player struct
 
-void onInject() {
+DWORD WINAPI MainThread(LPVOID lpParam) {
   log("M48a: chain resolves every tick — survives player-struct rebase");
+
+  while (true) {
+    // Step 1: Get module base. Real Windows: ASLR-randomized per launch,
+    //         GetModuleHandleA returns the current load address.
+    HMODULE hMod = GetModuleHandleA("ac_client.exe");
+    uintptr_t client_base = (uintptr_t)hMod;
+
+    // Step 2: Address of the static pointer cell (lives in .data section).
+    uintptr_t static_ptr = client_base + STATIC_OFFSET;
+
+    // Step 3: Dereference to get the player struct's current base.
+    //         If the game rebased the struct, this returns the NEW base.
+    uintptr_t player_base = *(uintptr_t*)(static_ptr);
+
+    // Step 4: Add HP offset, write 100. Real C++ pointer-deref write.
+    *(int*)(player_base + HP_OFFSET) = 100;
+
+    Sleep(16);
+  }
 }
 
-void onTick() {
-  // Step 1: Get module base. Real Windows: ASLR-randomized per launch,
-  //         GetModuleHandleA returns the current load address.
-  HMODULE hMod = GetModuleHandleA("ac_client.exe");
-  uintptr_t client_base = (uintptr_t)hMod;
-
-  // Step 2: Address of the static pointer cell (lives in .data section).
-  uintptr_t static_ptr = client_base + STATIC_OFFSET;
-
-  // Step 3: Dereference to get the player struct's current base.
-  //         If the game rebased the struct, this returns the NEW base.
-  uintptr_t player_base = *(uintptr_t*)(static_ptr);
-
-  // Step 4: Add HP offset, write 100. Real C++ pointer-deref write.
-  *(int*)(player_base + HP_OFFSET) = 100;
+BOOL WINAPI DllMain(HINSTANCE hMod, DWORD reason, LPVOID lpReserved) {
+  if (reason == DLL_PROCESS_ATTACH) {
+    DisableThreadLibraryCalls(hMod);
+    CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+  }
+  return TRUE;
 }
 `;
 

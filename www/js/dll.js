@@ -23,6 +23,115 @@ import { memory, SimMemory } from "./sim-memory.js";
 import { AssaultZone } from "./target-assaultzone.js";
 import { codeSegment } from "./code-segment.js";
 
+// Real-world DLL entry-point transform.
+//
+// Detects the canonical injectable-DLL shape and rewrites it to the
+// simulator's onInject/onTick contract:
+//
+//   DWORD WINAPI MainThread(LPVOID) {
+//     <inject phase>
+//     while (true) {
+//       <tick phase>
+//       Sleep(16);
+//     }
+//   }
+//
+//   BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) {
+//     if (reason == DLL_PROCESS_ATTACH) {
+//       DisableThreadLibraryCalls(h);
+//       CreateThread(NULL, 0, MainThread, NULL, 0, NULL);
+//     }
+//     return TRUE;
+//   }
+//
+// becomes:
+//   void onInject() { <inject phase> }
+//   void onTick()   { <tick phase, Sleep stripped> }
+//
+// Backwards-compat: templates that already define onInject/onTick
+// directly skip the transform untouched.
+function _findBalancedBrace(src, openIdx) {
+  let depth = 0;
+  for (let i = openIdx; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'") {
+      const q = c;
+      i++;
+      while (i < src.length && src[i] !== q) {
+        if (src[i] === '\\') i++;
+        i++;
+      }
+    } else if (c === '/' && src[i + 1] === '/') {
+      while (i < src.length && src[i] !== '\n') i++;
+    } else if (c === '/' && src[i + 1] === '*') {
+      i += 2;
+      while (i + 1 < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++;
+      i++;
+    } else if (c === '{') {
+      depth++;
+    } else if (c === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function _extractFnBlock(src, headerRe) {
+  const m = headerRe.exec(src);
+  if (!m) return null;
+  const braceIdx = m.index + m[0].length - 1;
+  const endIdx = _findBalancedBrace(src, braceIdx);
+  if (endIdx < 0) return null;
+  return {
+    start: m.index,
+    end: endIdx + 1,
+    bodyStart: braceIdx + 1,
+    bodyEnd: endIdx,
+  };
+}
+
+function _transformDllMainPattern(source) {
+  const mainRe = /(?:[A-Za-z_]\w*\s+)*MainThread\s*\([^)]*\)\s*\{/;
+  const main = _extractFnBlock(source, mainRe);
+  if (!main) return source;
+
+  const mainBody = source.slice(main.bodyStart, main.bodyEnd);
+
+  let injectBody = mainBody;
+  let tickBody = "";
+
+  const whileRe = /\bwhile\s*\(\s*(?:true|1)\s*\)\s*\{/;
+  const wm = whileRe.exec(mainBody);
+  if (wm) {
+    const wBraceIdx = wm.index + wm[0].length - 1;
+    const wEnd = _findBalancedBrace(mainBody, wBraceIdx);
+    if (wEnd >= 0) {
+      injectBody = mainBody.slice(0, wm.index);
+      tickBody = mainBody.slice(wBraceIdx + 1, wEnd);
+      // Sleep() is the cooperative yield in a real DLL thread loop; the
+      // simulator drives ticks via requestAnimationFrame, so we drop it.
+      tickBody = tickBody.replace(/\bSleep\s*\([^)]*\)\s*;?/g, "");
+    }
+  }
+
+  let cleaned = source.slice(0, main.start) + source.slice(main.end);
+
+  // DllMain is pure boilerplate (CreateThread call) — strip it.
+  const dllRe = /(?:[A-Za-z_]\w*\s+)*DllMain\s*\([^)]*\)\s*\{/;
+  const dll = _extractFnBlock(cleaned, dllRe);
+  if (dll) {
+    cleaned = cleaned.slice(0, dll.start) + cleaned.slice(dll.end);
+  }
+
+  // Drop preprocessor directives — JS doesn't speak C preprocessor.
+  cleaned = cleaned.replace(/^\s*#\s*(?:include|pragma|define)\b[^\n]*\n?/gm, "");
+
+  cleaned += `\nvoid onInject() {\n${injectBody}\n}\n`;
+  cleaned += `void onTick() {\n${tickBody}\n}\n`;
+  return cleaned;
+}
+
 const MAX_CONSOLE_LINES = 200;
 // localStorage key for the last successfully-compiled DLL source.
 // M25 AUTO-INJECT reads this to auto-load on mission start, mirroring
@@ -490,15 +599,20 @@ export class DllRuntime {
     //   - const TYPE x = ...   → const x = ...
     //
     // Plus the existing function-decl conversion (void/int/etc. → function).
-    const TYPE_NAMES = "HMODULE|HANDLE|HHOOK|HWND|uintptr_t|intptr_t|" +
-      "DWORD|WORD|BYTE|QWORD|BOOL|" +
+    const TYPE_NAMES = "HMODULE|HINSTANCE|HANDLE|HHOOK|HWND|uintptr_t|intptr_t|" +
+      "DWORD|WORD|BYTE|QWORD|BOOL|UINT|" +
       "int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t|" +
-      "LPVOID|LPCVOID|SIZE_T|HRESULT|" +
+      "LPVOID|LPCVOID|SIZE_T|HRESULT|LRESULT|WPARAM|LPARAM|LONG_PTR|WNDPROC|" +
       "Vector2|Vector3|Vector4|Matrix4x4|" +
       "ImVec2|ImVec4|IDirect3DDevice9";
     const SCALAR_TYPES = TYPE_NAMES + "|float|int|double|bool|char|void|wchar_t";
 
     let js = source;
+
+    // STEP 0. Real-world DLL entry-point transform — extract the
+    // MainThread/DllMain pattern into onInject/onTick. No-op for
+    // templates that already define onInject/onTick directly.
+    js = _transformDllMainPattern(js);
 
     // ORDER MATTERS. Pointer-deref patterns must run BEFORE cast strips
     // (otherwise cast strip eats the inner (TYPE*) and the deref pattern
@@ -526,9 +640,12 @@ export class DllRuntime {
 
     // 5. TYPE name = ... → var name = ...   (decl with init)
     //    TYPE name;     → var name;         (decl without init)
-    //    Excludes function decls (TYPE name(...)) — handled below.
+    //    Excludes function decls (TYPE name(...)) — handled below
+    //    because the lookahead requires '=' or ';' after the name.
+    //    Uses SCALAR_TYPES (the broader set) so primitive decls like
+    //    "bool g_HpFreeze = false;" or "int counter = 0;" rewrite too.
     js = js.replace(
-      new RegExp(`\\b(?:${TYPE_NAMES})\\s+(?=\\w+\\s*[=;])`, "g"),
+      new RegExp(`\\b(?:${SCALAR_TYPES})\\s+(?=\\w+\\s*[=;])`, "g"),
       "var ");
 
     // 6. Existing function-decl rewrite: void/int/auto/etc. name(...) → function name(...)
