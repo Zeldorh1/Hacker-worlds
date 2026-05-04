@@ -926,6 +926,60 @@ body[data-mode="hub"] .violation-bar { display: none; }
   overflow-y: auto;
   font-family: ui-monospace, Menlo, monospace;
 }
+.struct-modules {
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--accent-1);
+  border-radius: 5px;
+  padding: 8px 10px;
+  margin-bottom: 16px;
+}
+.struct-modules-title {
+  color: var(--accent-1);
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(168, 139, 250, 0.3);
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+.struct-modules .mod-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+.struct-modules .mod-row-primary {
+  background: rgba(168, 139, 250, 0.12);
+  border-radius: 3px;
+  padding: 4px 6px;
+  margin: 2px 0;
+}
+.struct-modules .mod-name {
+  color: var(--fg);
+}
+.struct-modules .mod-row-primary .mod-name {
+  color: var(--accent-1);
+  font-weight: bold;
+}
+.struct-modules .mod-base {
+  color: var(--accent-2);
+  font-weight: bold;
+}
+.struct-modules-tip {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(168, 139, 250, 0.2);
+  color: var(--fg-dim);
+  font-size: 10px;
+  font-style: italic;
+}
+.struct-modules-tip code {
+  background: rgba(34, 211, 238, 0.1);
+  padding: 1px 4px;
+  border-radius: 2px;
+  color: var(--accent-2);
+  font-style: normal;
+}
 .struct-header {
   margin-bottom: 16px;
   border-bottom: 1px solid var(--accent-2);

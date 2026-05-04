@@ -131,11 +131,46 @@ export class StructView {
       return;
     }
 
+    const modulesHtml = this._renderModules(target);
     const playerHtml = this._renderPlayerChain(target);
     const enemyHtml = this._renderEntityChain(target);
     const weaponHtml = this._renderWeaponChain(target);
 
-    this.$root.innerHTML = playerHtml + weaponHtml + enemyHtml;
+    this.$root.innerHTML = modulesHtml + playerHtml + weaponHtml + enemyHtml;
+  }
+
+  _renderModules(target) {
+    // Mirrors Cheat Engine's "View -> Memory View -> Modules" pane.
+    // Shows the synthetic module base for ac_client.exe (and the other
+    // 'always loaded' Windows DLLs we expose for M45 module-hide
+    // missions). Real CE would list every DLL in the target process
+    // with its current loaded base.
+    const moduleBase = target._simModuleBase || 0;
+    const moduleBaseStr = "0x" + moduleBase.toString(16).toUpperCase().padStart(8, "0");
+    // Other 'visible' modules from M45 (cosmetic — the simulator
+    // doesn't actually load them, but the M45 list mimics what
+    // EnumProcessModules would return).
+    const otherMods = (target.modules || [])
+      .filter(m => m.name && !m.name.toLowerCase().includes("hacker worlds"))
+      .map((m, i) => {
+        const base = (moduleBase + 0x800000 * (i + 2)) >>> 0;
+        const baseStr = "0x" + base.toString(16).toUpperCase().padStart(8, "0");
+        return `<div class="mod-row"><span class="mod-name">${m.name}</span><span class="mod-base">${baseStr}</span></div>`;
+      }).join("");
+
+    return `
+      <div class="struct-modules">
+        <div class="struct-modules-title">LOADED MODULES (CE: View → Modules)</div>
+        <div class="mod-row mod-row-primary">
+          <span class="mod-name">ac_client.exe</span>
+          <span class="mod-base">${moduleBaseStr}</span>
+        </div>
+        ${otherMods}
+        <div class="struct-modules-tip">
+          In CE, use <code>ac_client.exe+0x10F4F4</code> notation —
+          CE auto-resolves the module base + offset.
+        </div>
+      </div>`;
   }
 
   _renderPlayerChain(target) {
