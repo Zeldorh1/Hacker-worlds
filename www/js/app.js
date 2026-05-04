@@ -177,6 +177,7 @@ function setupDllEditor() {
   const $eject   = document.getElementById("btn-dll-eject");
   const $status  = document.getElementById("dll-status");
   const $console = document.getElementById("dll-console");
+  const $hideComments = document.getElementById("dll-hide-comments");
   if (!$code || !$compile) return;
   function setStatus(text, cls) {
     $status.textContent = text;
@@ -185,6 +186,41 @@ function setupDllEditor() {
   function renderConsole() {
     $console.textContent = dllRuntime.console.join("\n");
     $console.scrollTop = $console.scrollHeight;
+  }
+
+  // ── Hide-comments toggle ────────────────────────────────────
+  // Strips // line comments and /* */ block comments from the
+  // visible code so the player can focus on executable lines.
+  // Stores the full version with comments in a backing store; the
+  // textarea always reflects the current toggle state. Edits made
+  // in stripped mode persist when toggled back ON, but the original
+  // comments are NOT recovered (we'd need a structural diff for that).
+  // The mission's template is the source of truth on first load.
+  let _fullSource = "";   // backup with comments
+  function stripComments(src) {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, "")  // /* ... */
+      .replace(/^[ \t]*\/\/.*$/gm, "")   // // line (whole line)
+      .replace(/[ \t]+\/\/.*$/gm, "")    // trailing // on a code line
+      .replace(/\n{3,}/g, "\n\n");       // collapse blank runs
+  }
+  if ($hideComments) {
+    $hideComments.addEventListener("change", () => {
+      if ($hideComments.checked) {
+        _fullSource = $code.value;
+        $code.value = stripComments(_fullSource);
+      } else {
+        // Restore: use backup if we have it AND user hasn't edited
+        // the stripped version much (edits in stripped mode would
+        // be lost). Compare lengths as a quick heuristic.
+        if (_fullSource && stripComments(_fullSource) === stripComments($code.value)) {
+          $code.value = _fullSource;
+        }
+        // Otherwise the player edited in stripped mode — keep their
+        // changes; comments stay gone unless they reload the mission.
+        _fullSource = "";
+      }
+    });
   }
   $compile.addEventListener("click", () => {
     const result = dllRuntime.compile($code.value);

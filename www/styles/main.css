@@ -1163,6 +1163,19 @@ body[data-mode="hub"] .violation-bar { display: none; }
 /* DLL editor */
 .dll-editor { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; height: 100%; box-sizing: border-box; }
 .dll-toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.dll-comments-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 2px 6px;
+  border: 1px solid rgba(168, 139, 250, 0.3);
+  border-radius: 3px;
+  user-select: none;
+}
+.dll-comments-toggle:hover { color: var(--accent-1); border-color: var(--accent-1); }
+.dll-comments-toggle input { margin: 0; cursor: pointer; }
 .dll-toolbar .dll-status { color: var(--fg-dim); font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
 .dll-toolbar .dll-status.ok { color: var(--accent); }
 .dll-toolbar .dll-status.error { color: var(--danger); }
