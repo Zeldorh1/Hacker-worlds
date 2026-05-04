@@ -22,17 +22,20 @@
 import { memory } from "../sim-memory.js";
 
 const TEMPLATE = `// MINI TRAINER 2 — HP freeze with on/off toggle.
-//
-// register_cheat(label, tickFn) adds a menu entry. tickFn fires every
-// frame the cheat is enabled.
+// register_cheat hosts the menu UI (sim equivalent of ImGui::Checkbox).
+// The tick handler does a real C++ pointer-deref write.
+
+uintptr_t HP_ADDR = 0;
 
 void onInject() {
-  log("MINI TRAINER 2 online — open cheat menu (DELETE key) and tick HP Freeze");
+  HMODULE hMod = GetModuleHandleA("ac_client.exe");
+  uintptr_t client_base = (uintptr_t)hMod;
+  uintptr_t player_ptr = *(uintptr_t*)(client_base + 0x10F4F4);
+  HP_ADDR = player_ptr + 0xEC;
+  log("MINI TRAINER 2 — open cheat menu and tick HP Freeze");
 
-  // Single-feature menu entry. tickFn body is the same write_label
-  // from M70 — but only fires while the user has the box checked.
   register_cheat("HP Freeze", function() {
-    write_label("player.hp", 9999);
+    *(int*)(HP_ADDR) = 9999;
   });
 }
 

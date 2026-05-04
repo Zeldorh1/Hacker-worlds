@@ -27,23 +27,21 @@
 import { memory } from "../sim-memory.js";
 
 const TEMPLATE = `// MINI TRAINER 1 — Single-address HP freeze.
-//
-// Goal: HP never drops, no matter how many hazard ticks fire.
-// Pattern: hardcode the address, write the target value every tick.
-//
-// To find the address: M02 / scanner taught you. Use addr_of("player.hp")
-// here as a stand-in for the hardcoded hex you'd paste from CE.
+// Real C++ DLL skeleton: resolve the chain once, write every tick.
 
-const TARGET_HP = 9999;
+const int TARGET_HP = 9999;
+uintptr_t HP_ADDR = 0;
 
 void onInject() {
-  log("MINI TRAINER 1 online — freezing HP every tick");
+  HMODULE hMod = GetModuleHandleA("ac_client.exe");
+  uintptr_t client_base = (uintptr_t)hMod;
+  uintptr_t player_ptr = *(uintptr_t*)(client_base + 0x10F4F4);
+  HP_ADDR = player_ptr + 0xEC;
+  log("MINI TRAINER 1 online — HP_ADDR = " + HP_ADDR);
 }
 
 void onTick() {
-  // Every frame, write 9999 to the HP cell. The game tries to
-  // damage you; we overwrite faster than it can subtract.
-  write_label("player.hp", TARGET_HP);
+  *(int*)(HP_ADDR) = TARGET_HP;
 }
 `;
 

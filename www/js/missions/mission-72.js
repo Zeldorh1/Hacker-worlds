@@ -36,29 +36,28 @@
 import { memory } from "../sim-memory.js";
 
 const TEMPLATE = `// MINI TRAINER 3 — Multi-feature menu.
-//
-// Four register_cheat calls. Same pattern as M71 × 4. Open the cheat
-// menu (DELETE key) and tick each box. Each tick fires its handler
-// every frame the box stays checked.
+// Resolve every address ONCE at inject. Each register_cheat handler
+// does a real C++ pointer-deref write when its box is ticked.
+
+uintptr_t HP_ADDR     = 0;
+uintptr_t AMMO_ADDR   = 0;
+uintptr_t RECOIL_ADDR = 0;
+uintptr_t ESP_ADDR    = 0;
 
 void onInject() {
-  log("MINI TRAINER 3 online — 4 features available in cheat menu");
+  HMODULE hMod = GetModuleHandleA("ac_client.exe");
+  uintptr_t client_base = (uintptr_t)hMod;
+  uintptr_t player_ptr  = *(uintptr_t*)(client_base + 0x10F4F4);
 
-  register_cheat("HP Freeze", function() {
-    write_label("player.hp", 9999);
-  });
+  HP_ADDR     = player_ptr + 0xEC;
+  AMMO_ADDR   = player_ptr + 0x140;
+  RECOIL_ADDR = addr_of("weapon.recoilPerShot");
+  ESP_ADDR    = addr_of("render.espVisible");
 
-  register_cheat("Infinite Ammo", function() {
-    write_label("player.ammo", 999);
-  });
-
-  register_cheat("No Recoil", function() {
-    write_label("weapon.recoilPerShot", 0);
-  });
-
-  register_cheat("ESP", function() {
-    write_label("render.espVisible", 1);
-  });
+  register_cheat("HP Freeze",     function() { *(int*)(HP_ADDR)     = 9999; });
+  register_cheat("Infinite Ammo", function() { *(int*)(AMMO_ADDR)   = 999;  });
+  register_cheat("No Recoil",     function() { *(int*)(RECOIL_ADDR) = 0;    });
+  register_cheat("ESP",           function() { *(int*)(ESP_ADDR)    = 1;    });
 }
 
 void onTick() { }

@@ -34,14 +34,20 @@ const TEMPLATE = `// M21 — INTERNAL CHEAT
 // onInject() fires once when the DLL loads.
 // onTick() fires every frame (~60Hz) — full read/write to memory.
 
+uintptr_t HP_ADDR = 0;
+
 void onInject() {
+  HMODULE hMod = GetModuleHandleA("ac_client.exe");
+  uintptr_t client_base = (uintptr_t)hMod;
+  uintptr_t player_ptr  = *(uintptr_t*)(client_base + 0x10F4F4);
+  HP_ADDR = player_ptr + 0xEC;
   log("HP-lock DLL loaded into game process");
 }
 
 void onTick() {
   // Re-write HP every frame. Bleed can decrement all it wants;
   // your DLL re-applies 100 the same frame.
-  write_label("player.hp", 100);
+  *(int*)(HP_ADDR) = 100;
 }
 `;
 
